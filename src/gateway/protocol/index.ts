@@ -60,6 +60,12 @@ import {
   type ChatInjectParams,
   ChatInjectParamsSchema,
   ChatSendParamsSchema,
+  type FileChunkParams,
+  FileChunkParamsSchema,
+  type FileCompleteParams,
+  FileCompleteParamsSchema,
+  type FileCancelParams,
+  FileCancelParamsSchema,
   type ConfigApplyParams,
   ConfigApplyParamsSchema,
   type ConfigGetParams,
@@ -397,6 +403,9 @@ export const validateChatSendParams = ajv.compile(ChatSendParamsSchema);
 export const validateChatAbortParams = ajv.compile<ChatAbortParams>(ChatAbortParamsSchema);
 export const validateChatInjectParams = ajv.compile<ChatInjectParams>(ChatInjectParamsSchema);
 export const validateChatEvent = ajv.compile(ChatEventSchema);
+export const validateFileChunkParams = ajv.compile<FileChunkParams>(FileChunkParamsSchema);
+export const validateFileCompleteParams = ajv.compile<FileCompleteParams>(FileCompleteParamsSchema);
+export const validateFileCancelParams = ajv.compile<FileCancelParams>(FileCancelParamsSchema);
 export const validateUpdateRunParams = ajv.compile<UpdateRunParams>(UpdateRunParamsSchema);
 export const validateWebLoginStartParams =
   ajv.compile<WebLoginStartParams>(WebLoginStartParamsSchema);
@@ -530,6 +539,9 @@ export {
   ChatHistoryParamsSchema,
   ChatSendParamsSchema,
   ChatInjectParamsSchema,
+  FileChunkParamsSchema,
+  FileCompleteParamsSchema,
+  FileCancelParamsSchema,
   UpdateRunParamsSchema,
   TickEventSchema,
   ShutdownEventSchema,
@@ -641,4 +653,7 @@ export type {
   PollParams,
   UpdateRunParams,
   ChatInjectParams,
+  FileChunkParams,
+  FileCompleteParams,
+  FileCancelParams,
 };

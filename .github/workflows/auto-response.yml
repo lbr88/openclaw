@@ -1,18 +1,19 @@
 name: Auto response
-
-on:
+true:
   issues:
-    types: [opened, edited, labeled]
+    types:
+    - opened
+    - edited
+    - labeled
   issue_comment:
-    types: [created]
-  pull_request_target: # zizmor: ignore[dangerous-triggers] maintainer-owned label automation; no untrusted checkout or code execution
-    types: [labeled]
-
+    types:
+    - created
+  pull_request_target:
+    types:
+    - labeled
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 permissions: {}
-
 jobs:
   auto-response:
     permissions:
@@ -20,505 +21,211 @@ jobs:
       pull-requests: write
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
-      - uses: actions/create-github-app-token@v2
-        id: app-token
-        continue-on-error: true
-        with:
-          app-id: "2729701"
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-      - uses: actions/create-github-app-token@v2
-        id: app-token-fallback
-        if: steps.app-token.outcome == 'failure'
-        with:
-          app-id: "2971289"
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY_FALLBACK }}
-      - name: Handle labeled items
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ steps.app-token.outputs.token || steps.app-token-fallback.outputs.token }}
-          script: |
-            // Labels prefixed with "r:" are auto-response triggers.
-            const activePrLimit = 10;
-            const rules = [
-              {
-                label: "r: skill",
-                close: true,
-                message:
-                  "Thanks for the contribution! New skills should be published to [Clawhub](https://clawhub.ai) for everyone to use. We’re keeping the core lean on skills, so I’m closing this out.",
-              },
-              {
-                label: "r: support",
-                close: true,
-                message:
-                  "Please use [our support server](https://discord.gg/clawd) and ask in #help or #users-helping-users to resolve this, or follow the stuck FAQ at https://docs.openclaw.ai/help/faq#im-stuck-whats-the-fastest-way-to-get-unstuck.",
-              },
-              {
-                label: "r: no-ci-pr",
-                close: true,
-                message:
-                  "Please don't make PRs for test failures on main.\n\n" +
-                  "The team is aware of those and will handle them directly on the codebase, not only fixing the tests but also investigating what the root cause is. Having to sift through test-fix-PRs (including some that have been out of date for weeks...) on top of that doesn't help. There are already way too many PRs for humans to manage; please don't make the flood worse.\n\n" +
-                  "Thank you.",
-              },
-              {
-                label: "r: too-many-prs",
-                close: true,
-                message:
-                  `Closing this PR because the author has more than ${activePrLimit} active PRs in this repo. ` +
-                  "Please reduce the active PR queue and reopen or resubmit once it is back under the limit. You can close your own PRs to get back under the limit.",
-              },
-              {
-                label: "r: testflight",
-                close: true,
-                commentTriggers: ["testflight"],
-                message: "Not available, build from source.",
-              },
-              {
-                label: "r: third-party-extension",
-                close: true,
-                message:
-                  "Please make this as a third-party plugin that you maintain yourself in your own repo. Docs: https://docs.openclaw.ai/plugin. Feel free to open a PR after to add it to our community plugins page: https://docs.openclaw.ai/plugins/community",
-              },
-              {
-                label: "r: moltbook",
-                close: true,
-                lock: true,
-                lockReason: "off-topic",
-                commentTriggers: ["moltbook"],
-                message:
-                  "OpenClaw is not affiliated with Moltbook, and issues related to Moltbook should not be submitted here.",
-              },
-            ];
-
-            const maintainerTeam = "maintainer";
-            const pingWarningMessage =
-              "Please don’t spam-ping multiple maintainers at once. Be patient, or join our community Discord for help: https://discord.gg/clawd";
-            const mentionRegex = /@([A-Za-z0-9-]+)/g;
-            const maintainerCache = new Map();
-            const normalizeLogin = (login) => login.toLowerCase();
-            const bugSubtypeLabelSpecs = {
-              regression: {
-                color: "D93F0B",
-                description: "Behavior that previously worked and now fails",
-              },
-              "bug:crash": {
-                color: "B60205",
-                description: "Process/app exits unexpectedly or hangs",
-              },
-              "bug:behavior": {
-                color: "D73A4A",
-                description: "Incorrect behavior without a crash",
-              },
-            };
-            const bugTypeToLabel = {
-              "Regression (worked before, now fails)": "regression",
-              "Crash (process/app exits or hangs)": "bug:crash",
-              "Behavior bug (incorrect output/state without crash)": "bug:behavior",
-            };
-            const bugSubtypeLabels = Object.keys(bugSubtypeLabelSpecs);
-
-            const extractIssueFormValue = (body, field) => {
-              if (!body) {
-                return "";
-              }
-              const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const regex = new RegExp(
-                `(?:^|\\n)###\\s+${escapedField}\\s*\\n([\\s\\S]*?)(?=\\n###\\s+|$)`,
-                "i",
-              );
-              const match = body.match(regex);
-              if (!match) {
-                return "";
-              }
-              for (const line of match[1].split("\n")) {
-                const trimmed = line.trim();
-                if (trimmed) {
-                  return trimmed;
-                }
-              }
-              return "";
-            };
-
-            const ensureLabelExists = async (name, color, description) => {
-              try {
-                await github.rest.issues.getLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name,
-                });
-              } catch (error) {
-                if (error?.status !== 404) {
-                  throw error;
-                }
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name,
-                  color,
-                  description,
-                });
-              }
-            };
-
-            const syncBugSubtypeLabel = async (issue, labelSet) => {
-              if (!labelSet.has("bug")) {
-                return;
-              }
-
-              const selectedBugType = extractIssueFormValue(issue.body ?? "", "Bug type");
-              const targetLabel = bugTypeToLabel[selectedBugType];
-              if (!targetLabel) {
-                return;
-              }
-
-              const targetSpec = bugSubtypeLabelSpecs[targetLabel];
-              await ensureLabelExists(targetLabel, targetSpec.color, targetSpec.description);
-
-              for (const subtypeLabel of bugSubtypeLabels) {
-                if (subtypeLabel === targetLabel) {
-                  continue;
-                }
-                if (!labelSet.has(subtypeLabel)) {
-                  continue;
-                }
-                try {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    name: subtypeLabel,
-                  });
-                  labelSet.delete(subtypeLabel);
-                } catch (error) {
-                  if (error?.status !== 404) {
-                    throw error;
-                  }
-                }
-              }
-
-              if (!labelSet.has(targetLabel)) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  labels: [targetLabel],
-                });
-                labelSet.add(targetLabel);
-              }
-            };
-
-            const isMaintainer = async (login) => {
-              if (!login) {
-                return false;
-              }
-              const normalized = normalizeLogin(login);
-              if (maintainerCache.has(normalized)) {
-                return maintainerCache.get(normalized);
-              }
-              let isMember = false;
-              try {
-                const membership = await github.rest.teams.getMembershipForUserInOrg({
-                  org: context.repo.owner,
-                  team_slug: maintainerTeam,
-                  username: normalized,
-                });
-                isMember = membership?.data?.state === "active";
-              } catch (error) {
-                if (error?.status !== 404) {
-                  throw error;
-                }
-              }
-              maintainerCache.set(normalized, isMember);
-              return isMember;
-            };
-
-            const countMaintainerMentions = async (body, authorLogin) => {
-              if (!body) {
-                return 0;
-              }
-              const normalizedAuthor = authorLogin ? normalizeLogin(authorLogin) : "";
-              if (normalizedAuthor && (await isMaintainer(normalizedAuthor))) {
-                return 0;
-              }
-
-              const haystack = body.toLowerCase();
-              const teamMention = `@${context.repo.owner.toLowerCase()}/${maintainerTeam}`;
-              if (haystack.includes(teamMention)) {
-                return 3;
-              }
-
-              const mentions = new Set();
-              for (const match of body.matchAll(mentionRegex)) {
-                mentions.add(normalizeLogin(match[1]));
-              }
-              if (normalizedAuthor) {
-                mentions.delete(normalizedAuthor);
-              }
-
-              let count = 0;
-              for (const login of mentions) {
-                if (await isMaintainer(login)) {
-                  count += 1;
-                }
-              }
-              return count;
-            };
-
-            const triggerLabel = "trigger-response";
-            const activePrLimitLabel = "r: too-many-prs";
-            const activePrLimitOverrideLabel = "r: too-many-prs-override";
-            const target = context.payload.issue ?? context.payload.pull_request;
-            if (!target) {
-              return;
-            }
-
-            const labelSet = new Set(
-              (target.labels ?? [])
-                .map((label) => (typeof label === "string" ? label : label?.name))
-                .filter((name) => typeof name === "string"),
-            );
-
-            const issue = context.payload.issue;
-            const pullRequest = context.payload.pull_request;
-            const comment = context.payload.comment;
-            if (comment) {
-              const authorLogin = comment.user?.login ?? "";
-              if (comment.user?.type === "Bot" || authorLogin.endsWith("[bot]")) {
-                return;
-              }
-
-              const commentBody = comment.body ?? "";
-              const responses = [];
-              const mentionCount = await countMaintainerMentions(commentBody, authorLogin);
-              if (mentionCount >= 3) {
-                responses.push(pingWarningMessage);
-              }
-
-              const commentHaystack = commentBody.toLowerCase();
-              const commentRule = rules.find((item) =>
-                (item.commentTriggers ?? []).some((trigger) =>
-                  commentHaystack.includes(trigger),
-                ),
-              );
-              if (commentRule) {
-                responses.push(commentRule.message);
-              }
-
-              if (responses.length > 0) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: target.number,
-                  body: responses.join("\n\n"),
-                });
-              }
-              return;
-            }
-
-            if (issue) {
-              const action = context.payload.action;
-              if (action === "opened" || action === "edited") {
-                const issueText = `${issue.title ?? ""}\n${issue.body ?? ""}`.trim();
-                const authorLogin = issue.user?.login ?? "";
-                const mentionCount = await countMaintainerMentions(
-                  issueText,
-                  authorLogin,
-                );
-                if (mentionCount >= 3) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    body: pingWarningMessage,
-                  });
-                }
-
-                await syncBugSubtypeLabel(issue, labelSet);
-              }
-            }
-
-            const hasTriggerLabel = labelSet.has(triggerLabel);
-            if (hasTriggerLabel) {
-              labelSet.delete(triggerLabel);
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: target.number,
-                  name: triggerLabel,
-                });
-              } catch (error) {
-                if (error?.status !== 404) {
-                  throw error;
-                }
-              }
-            }
-
-            const isLabelEvent = context.payload.action === "labeled";
-            if (!hasTriggerLabel && !isLabelEvent) {
-              return;
-            }
-
-            if (issue) {
-              const title = issue.title ?? "";
-              const body = issue.body ?? "";
-              const haystack = `${title}\n${body}`.toLowerCase();
-              const hasMoltbookLabel = labelSet.has("r: moltbook");
-              const hasTestflightLabel = labelSet.has("r: testflight");
-              const hasSecurityLabel = labelSet.has("security");
-              if (title.toLowerCase().includes("security") && !hasSecurityLabel) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  labels: ["security"],
-                });
-                labelSet.add("security");
-              }
-              if (title.toLowerCase().includes("testflight") && !hasTestflightLabel) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  labels: ["r: testflight"],
-                });
-                labelSet.add("r: testflight");
-              }
-              if (haystack.includes("moltbook") && !hasMoltbookLabel) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  labels: ["r: moltbook"],
-                });
-                labelSet.add("r: moltbook");
-              }
-            }
-
-            const invalidLabel = "invalid";
-            const spamLabel = "r: spam";
-            const dirtyLabel = "dirty";
-            const noisyPrMessage =
-              "Closing this PR because it looks dirty (too many unrelated or unexpected changes). This usually happens when a branch picks up unrelated commits or a merge went sideways. Please recreate the PR from a clean branch.";
-
-            if (pullRequest) {
-              if (labelSet.has(dirtyLabel)) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  body: noisyPrMessage,
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  state: "closed",
-                });
-                return;
-              }
-              const labelCount = labelSet.size;
-              if (labelCount > 20) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  body: noisyPrMessage,
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  state: "closed",
-                });
-                return;
-              }
-              if (labelSet.has(spamLabel)) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  state: "closed",
-                });
-                await github.rest.issues.lock({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  lock_reason: "spam",
-                });
-                return;
-              }
-              if (labelSet.has(invalidLabel)) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pullRequest.number,
-                  state: "closed",
-                });
-                return;
-              }
-            }
-
-            if (issue && labelSet.has(spamLabel)) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: "closed",
-                state_reason: "not_planned",
-              });
-              await github.rest.issues.lock({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                lock_reason: "spam",
-              });
-              return;
-            }
-
-            if (issue && labelSet.has(invalidLabel)) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: "closed",
-                state_reason: "not_planned",
-              });
-              return;
-            }
-
-            if (pullRequest && labelSet.has(activePrLimitOverrideLabel)) {
-              labelSet.delete(activePrLimitLabel);
-            }
-
-            const rule = rules.find((item) => labelSet.has(item.label));
-            if (!rule) {
-              return;
-            }
-
-            const issueNumber = target.number;
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: rule.message,
-            });
-
-            if (rule.close) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                state: "closed",
-              });
-            }
-
-            if (rule.lock) {
-              await github.rest.issues.lock({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                lock_reason: rule.lockReason ?? "resolved",
-              });
-            }
+    - uses: actions/create-github-app-token@v2
+      id: app-token
+      continue-on-error: true
+      with:
+        app-id: '2729701'
+        private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+    - uses: actions/create-github-app-token@v2
+      id: app-token-fallback
+      if: steps.app-token.outcome == 'failure'
+      with:
+        app-id: '2971289'
+        private-key: ${{ secrets.GH_APP_PRIVATE_KEY_FALLBACK }}
+    - name: Handle labeled items
+      uses: actions/github-script@v8
+      with:
+        github-token: ${{ steps.app-token.outputs.token || steps.app-token-fallback.outputs.token
+          }}
+        script: "// Labels prefixed with \"r:\" are auto-response triggers.\nconst\
+          \ activePrLimit = 10;\nconst rules = [\n  {\n    label: \"r: skill\",\n\
+          \    close: true,\n    message:\n      \"Thanks for the contribution! New\
+          \ skills should be published to [Clawhub](https://clawhub.ai) for everyone\
+          \ to use. We\u2019re keeping the core lean on skills, so I\u2019m closing\
+          \ this out.\",\n  },\n  {\n    label: \"r: support\",\n    close: true,\n\
+          \    message:\n      \"Please use [our support server](https://discord.gg/clawd)\
+          \ and ask in #help or #users-helping-users to resolve this, or follow the\
+          \ stuck FAQ at https://docs.openclaw.ai/help/faq#im-stuck-whats-the-fastest-way-to-get-unstuck.\"\
+          ,\n  },\n  {\n    label: \"r: no-ci-pr\",\n    close: true,\n    message:\n\
+          \      \"Please don't make PRs for test failures on main.\\n\\n\" +\n  \
+          \    \"The team is aware of those and will handle them directly on the codebase,\
+          \ not only fixing the tests but also investigating what the root cause is.\
+          \ Having to sift through test-fix-PRs (including some that have been out\
+          \ of date for weeks...) on top of that doesn't help. There are already way\
+          \ too many PRs for humans to manage; please don't make the flood worse.\\\
+          n\\n\" +\n      \"Thank you.\",\n  },\n  {\n    label: \"r: too-many-prs\"\
+          ,\n    close: true,\n    message:\n      `Closing this PR because the author\
+          \ has more than ${activePrLimit} active PRs in this repo. ` +\n      \"\
+          Please reduce the active PR queue and reopen or resubmit once it is back\
+          \ under the limit. You can close your own PRs to get back under the limit.\"\
+          ,\n  },\n  {\n    label: \"r: testflight\",\n    close: true,\n    commentTriggers:\
+          \ [\"testflight\"],\n    message: \"Not available, build from source.\"\
+          ,\n  },\n  {\n    label: \"r: third-party-extension\",\n    close: true,\n\
+          \    message:\n      \"Please make this as a third-party plugin that you\
+          \ maintain yourself in your own repo. Docs: https://docs.openclaw.ai/plugin.\
+          \ Feel free to open a PR after to add it to our community plugins page:\
+          \ https://docs.openclaw.ai/plugins/community\",\n  },\n  {\n    label: \"\
+          r: moltbook\",\n    close: true,\n    lock: true,\n    lockReason: \"off-topic\"\
+          ,\n    commentTriggers: [\"moltbook\"],\n    message:\n      \"OpenClaw\
+          \ is not affiliated with Moltbook, and issues related to Moltbook should\
+          \ not be submitted here.\",\n  },\n];\n\nconst maintainerTeam = \"maintainer\"\
+          ;\nconst pingWarningMessage =\n  \"Please don\u2019t spam-ping multiple\
+          \ maintainers at once. Be patient, or join our community Discord for help:\
+          \ https://discord.gg/clawd\";\nconst mentionRegex = /@([A-Za-z0-9-]+)/g;\n\
+          const maintainerCache = new Map();\nconst normalizeLogin = (login) => login.toLowerCase();\n\
+          const bugSubtypeLabelSpecs = {\n  regression: {\n    color: \"D93F0B\",\n\
+          \    description: \"Behavior that previously worked and now fails\",\n \
+          \ },\n  \"bug:crash\": {\n    color: \"B60205\",\n    description: \"Process/app\
+          \ exits unexpectedly or hangs\",\n  },\n  \"bug:behavior\": {\n    color:\
+          \ \"D73A4A\",\n    description: \"Incorrect behavior without a crash\",\n\
+          \  },\n};\nconst bugTypeToLabel = {\n  \"Regression (worked before, now\
+          \ fails)\": \"regression\",\n  \"Crash (process/app exits or hangs)\": \"\
+          bug:crash\",\n  \"Behavior bug (incorrect output/state without crash)\"\
+          : \"bug:behavior\",\n};\nconst bugSubtypeLabels = Object.keys(bugSubtypeLabelSpecs);\n\
+          \nconst extractIssueFormValue = (body, field) => {\n  if (!body) {\n   \
+          \ return \"\";\n  }\n  const escapedField = field.replace(/[.*+?^${}()|[\\\
+          ]\\\\]/g, \"\\\\$&\");\n  const regex = new RegExp(\n    `(?:^|\\\\n)###\\\
+          \\s+${escapedField}\\\\s*\\\\n([\\\\s\\\\S]*?)(?=\\\\n###\\\\s+|$)`,\n \
+          \   \"i\",\n  );\n  const match = body.match(regex);\n  if (!match) {\n\
+          \    return \"\";\n  }\n  for (const line of match[1].split(\"\\n\")) {\n\
+          \    const trimmed = line.trim();\n    if (trimmed) {\n      return trimmed;\n\
+          \    }\n  }\n  return \"\";\n};\n\nconst ensureLabelExists = async (name,\
+          \ color, description) => {\n  try {\n    await github.rest.issues.getLabel({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  name,\n    });\n  } catch (error) {\n    if (error?.status !== 404) {\n\
+          \      throw error;\n    }\n    await github.rest.issues.createLabel({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  name,\n      color,\n      description,\n    });\n  }\n};\n\nconst syncBugSubtypeLabel\
+          \ = async (issue, labelSet) => {\n  if (!labelSet.has(\"bug\")) {\n    return;\n\
+          \  }\n\n  const selectedBugType = extractIssueFormValue(issue.body ?? \"\
+          \", \"Bug type\");\n  const targetLabel = bugTypeToLabel[selectedBugType];\n\
+          \  if (!targetLabel) {\n    return;\n  }\n\n  const targetSpec = bugSubtypeLabelSpecs[targetLabel];\n\
+          \  await ensureLabelExists(targetLabel, targetSpec.color, targetSpec.description);\n\
+          \n  for (const subtypeLabel of bugSubtypeLabels) {\n    if (subtypeLabel\
+          \ === targetLabel) {\n      continue;\n    }\n    if (!labelSet.has(subtypeLabel))\
+          \ {\n      continue;\n    }\n    try {\n      await github.rest.issues.removeLabel({\n\
+          \        owner: context.repo.owner,\n        repo: context.repo.repo,\n\
+          \        issue_number: issue.number,\n        name: subtypeLabel,\n    \
+          \  });\n      labelSet.delete(subtypeLabel);\n    } catch (error) {\n  \
+          \    if (error?.status !== 404) {\n        throw error;\n      }\n    }\n\
+          \  }\n\n  if (!labelSet.has(targetLabel)) {\n    await github.rest.issues.addLabels({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: issue.number,\n      labels: [targetLabel],\n    });\n\
+          \    labelSet.add(targetLabel);\n  }\n};\n\nconst isMaintainer = async (login)\
+          \ => {\n  if (!login) {\n    return false;\n  }\n  const normalized = normalizeLogin(login);\n\
+          \  if (maintainerCache.has(normalized)) {\n    return maintainerCache.get(normalized);\n\
+          \  }\n  let isMember = false;\n  try {\n    const membership = await github.rest.teams.getMembershipForUserInOrg({\n\
+          \      org: context.repo.owner,\n      team_slug: maintainerTeam,\n    \
+          \  username: normalized,\n    });\n    isMember = membership?.data?.state\
+          \ === \"active\";\n  } catch (error) {\n    if (error?.status !== 404) {\n\
+          \      throw error;\n    }\n  }\n  maintainerCache.set(normalized, isMember);\n\
+          \  return isMember;\n};\n\nconst countMaintainerMentions = async (body,\
+          \ authorLogin) => {\n  if (!body) {\n    return 0;\n  }\n  const normalizedAuthor\
+          \ = authorLogin ? normalizeLogin(authorLogin) : \"\";\n  if (normalizedAuthor\
+          \ && (await isMaintainer(normalizedAuthor))) {\n    return 0;\n  }\n\n \
+          \ const haystack = body.toLowerCase();\n  const teamMention = `@${context.repo.owner.toLowerCase()}/${maintainerTeam}`;\n\
+          \  if (haystack.includes(teamMention)) {\n    return 3;\n  }\n\n  const\
+          \ mentions = new Set();\n  for (const match of body.matchAll(mentionRegex))\
+          \ {\n    mentions.add(normalizeLogin(match[1]));\n  }\n  if (normalizedAuthor)\
+          \ {\n    mentions.delete(normalizedAuthor);\n  }\n\n  let count = 0;\n \
+          \ for (const login of mentions) {\n    if (await isMaintainer(login)) {\n\
+          \      count += 1;\n    }\n  }\n  return count;\n};\n\nconst triggerLabel\
+          \ = \"trigger-response\";\nconst activePrLimitLabel = \"r: too-many-prs\"\
+          ;\nconst activePrLimitOverrideLabel = \"r: too-many-prs-override\";\nconst\
+          \ target = context.payload.issue ?? context.payload.pull_request;\nif (!target)\
+          \ {\n  return;\n}\n\nconst labelSet = new Set(\n  (target.labels ?? [])\n\
+          \    .map((label) => (typeof label === \"string\" ? label : label?.name))\n\
+          \    .filter((name) => typeof name === \"string\"),\n);\n\nconst issue =\
+          \ context.payload.issue;\nconst pullRequest = context.payload.pull_request;\n\
+          const comment = context.payload.comment;\nif (comment) {\n  const authorLogin\
+          \ = comment.user?.login ?? \"\";\n  if (comment.user?.type === \"Bot\" ||\
+          \ authorLogin.endsWith(\"[bot]\")) {\n    return;\n  }\n\n  const commentBody\
+          \ = comment.body ?? \"\";\n  const responses = [];\n  const mentionCount\
+          \ = await countMaintainerMentions(commentBody, authorLogin);\n  if (mentionCount\
+          \ >= 3) {\n    responses.push(pingWarningMessage);\n  }\n\n  const commentHaystack\
+          \ = commentBody.toLowerCase();\n  const commentRule = rules.find((item)\
+          \ =>\n    (item.commentTriggers ?? []).some((trigger) =>\n      commentHaystack.includes(trigger),\n\
+          \    ),\n  );\n  if (commentRule) {\n    responses.push(commentRule.message);\n\
+          \  }\n\n  if (responses.length > 0) {\n    await github.rest.issues.createComment({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: target.number,\n      body: responses.join(\"\\n\\n\"),\n\
+          \    });\n  }\n  return;\n}\n\nif (issue) {\n  const action = context.payload.action;\n\
+          \  if (action === \"opened\" || action === \"edited\") {\n    const issueText\
+          \ = `${issue.title ?? \"\"}\\n${issue.body ?? \"\"}`.trim();\n    const\
+          \ authorLogin = issue.user?.login ?? \"\";\n    const mentionCount = await\
+          \ countMaintainerMentions(\n      issueText,\n      authorLogin,\n    );\n\
+          \    if (mentionCount >= 3) {\n      await github.rest.issues.createComment({\n\
+          \        owner: context.repo.owner,\n        repo: context.repo.repo,\n\
+          \        issue_number: issue.number,\n        body: pingWarningMessage,\n\
+          \      });\n    }\n\n    await syncBugSubtypeLabel(issue, labelSet);\n \
+          \ }\n}\n\nconst hasTriggerLabel = labelSet.has(triggerLabel);\nif (hasTriggerLabel)\
+          \ {\n  labelSet.delete(triggerLabel);\n  try {\n    await github.rest.issues.removeLabel({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: target.number,\n      name: triggerLabel,\n    });\n  }\
+          \ catch (error) {\n    if (error?.status !== 404) {\n      throw error;\n\
+          \    }\n  }\n}\n\nconst isLabelEvent = context.payload.action === \"labeled\"\
+          ;\nif (!hasTriggerLabel && !isLabelEvent) {\n  return;\n}\n\nif (issue)\
+          \ {\n  const title = issue.title ?? \"\";\n  const body = issue.body ??\
+          \ \"\";\n  const haystack = `${title}\\n${body}`.toLowerCase();\n  const\
+          \ hasMoltbookLabel = labelSet.has(\"r: moltbook\");\n  const hasTestflightLabel\
+          \ = labelSet.has(\"r: testflight\");\n  const hasSecurityLabel = labelSet.has(\"\
+          security\");\n  if (title.toLowerCase().includes(\"security\") && !hasSecurityLabel)\
+          \ {\n    await github.rest.issues.addLabels({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: issue.number,\n   \
+          \   labels: [\"security\"],\n    });\n    labelSet.add(\"security\");\n\
+          \  }\n  if (title.toLowerCase().includes(\"testflight\") && !hasTestflightLabel)\
+          \ {\n    await github.rest.issues.addLabels({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: issue.number,\n   \
+          \   labels: [\"r: testflight\"],\n    });\n    labelSet.add(\"r: testflight\"\
+          );\n  }\n  if (haystack.includes(\"moltbook\") && !hasMoltbookLabel) {\n\
+          \    await github.rest.issues.addLabels({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: issue.number,\n   \
+          \   labels: [\"r: moltbook\"],\n    });\n    labelSet.add(\"r: moltbook\"\
+          );\n  }\n}\n\nconst invalidLabel = \"invalid\";\nconst spamLabel = \"r:\
+          \ spam\";\nconst dirtyLabel = \"dirty\";\nconst noisyPrMessage =\n  \"Closing\
+          \ this PR because it looks dirty (too many unrelated or unexpected changes).\
+          \ This usually happens when a branch picks up unrelated commits or a merge\
+          \ went sideways. Please recreate the PR from a clean branch.\";\n\nif (pullRequest)\
+          \ {\n  if (labelSet.has(dirtyLabel)) {\n    await github.rest.issues.createComment({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: pullRequest.number,\n      body: noisyPrMessage,\n    });\n\
+          \    await github.rest.issues.update({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: pullRequest.number,\n\
+          \      state: \"closed\",\n    });\n    return;\n  }\n  const labelCount\
+          \ = labelSet.size;\n  if (labelCount > 20) {\n    await github.rest.issues.createComment({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: pullRequest.number,\n      body: noisyPrMessage,\n    });\n\
+          \    await github.rest.issues.update({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: pullRequest.number,\n\
+          \      state: \"closed\",\n    });\n    return;\n  }\n  if (labelSet.has(spamLabel))\
+          \ {\n    await github.rest.issues.update({\n      owner: context.repo.owner,\n\
+          \      repo: context.repo.repo,\n      issue_number: pullRequest.number,\n\
+          \      state: \"closed\",\n    });\n    await github.rest.issues.lock({\n\
+          \      owner: context.repo.owner,\n      repo: context.repo.repo,\n    \
+          \  issue_number: pullRequest.number,\n      lock_reason: \"spam\",\n   \
+          \ });\n    return;\n  }\n  if (labelSet.has(invalidLabel)) {\n    await\
+          \ github.rest.issues.update({\n      owner: context.repo.owner,\n      repo:\
+          \ context.repo.repo,\n      issue_number: pullRequest.number,\n      state:\
+          \ \"closed\",\n    });\n    return;\n  }\n}\n\nif (issue && labelSet.has(spamLabel))\
+          \ {\n  await github.rest.issues.update({\n    owner: context.repo.owner,\n\
+          \    repo: context.repo.repo,\n    issue_number: issue.number,\n    state:\
+          \ \"closed\",\n    state_reason: \"not_planned\",\n  });\n  await github.rest.issues.lock({\n\
+          \    owner: context.repo.owner,\n    repo: context.repo.repo,\n    issue_number:\
+          \ issue.number,\n    lock_reason: \"spam\",\n  });\n  return;\n}\n\nif (issue\
+          \ && labelSet.has(invalidLabel)) {\n  await github.rest.issues.update({\n\
+          \    owner: context.repo.owner,\n    repo: context.repo.repo,\n    issue_number:\
+          \ issue.number,\n    state: \"closed\",\n    state_reason: \"not_planned\"\
+          ,\n  });\n  return;\n}\n\nif (pullRequest && labelSet.has(activePrLimitOverrideLabel))\
+          \ {\n  labelSet.delete(activePrLimitLabel);\n}\n\nconst rule = rules.find((item)\
+          \ => labelSet.has(item.label));\nif (!rule) {\n  return;\n}\n\nconst issueNumber\
+          \ = target.number;\n\nawait github.rest.issues.createComment({\n  owner:\
+          \ context.repo.owner,\n  repo: context.repo.repo,\n  issue_number: issueNumber,\n\
+          \  body: rule.message,\n});\n\nif (rule.close) {\n  await github.rest.issues.update({\n\
+          \    owner: context.repo.owner,\n    repo: context.repo.repo,\n    issue_number:\
+          \ issueNumber,\n    state: \"closed\",\n  });\n}\n\nif (rule.lock) {\n \
+          \ await github.rest.issues.lock({\n    owner: context.repo.owner,\n    repo:\
+          \ context.repo.repo,\n    issue_number: issueNumber,\n    lock_reason: rule.lockReason\
+          \ ?? \"resolved\",\n  });\n}\n"
+'on':
+  workflow_dispatch: null

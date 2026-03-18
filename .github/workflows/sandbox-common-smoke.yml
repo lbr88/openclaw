@@ -1,62 +1,58 @@
 name: Sandbox Common Smoke
-
-on:
+true:
   push:
-    branches: [main]
+    branches:
+    - main
     paths:
-      - Dockerfile.sandbox
-      - Dockerfile.sandbox-common
-      - scripts/sandbox-common-setup.sh
+    - Dockerfile.sandbox
+    - Dockerfile.sandbox-common
+    - scripts/sandbox-common-setup.sh
   pull_request:
     paths:
-      - Dockerfile.sandbox
-      - Dockerfile.sandbox-common
-      - scripts/sandbox-common-setup.sh
-
+    - Dockerfile.sandbox
+    - Dockerfile.sandbox-common
+    - scripts/sandbox-common-setup.sh
 concurrency:
-  group: sandbox-common-smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: sandbox-common-smoke-${{ github.workflow }}-${{ github.event.pull_request.number
+    || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 jobs:
   sandbox-common-smoke:
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          submodules: false
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        submodules: false
+    - name: Set up Docker Builder
+      uses: docker/setup-buildx-action@v4
+    - name: Build minimal sandbox base (USER sandbox)
+      shell: bash
+      run: 'set -euo pipefail
 
-      - name: Set up Docker Builder
-        uses: docker/setup-buildx-action@v4
 
-      - name: Build minimal sandbox base (USER sandbox)
-        shell: bash
-        run: |
-          set -euo pipefail
+        docker build -t openclaw-sandbox-smoke-base:bookworm-slim - <<''EOF''
 
-          docker build -t openclaw-sandbox-smoke-base:bookworm-slim - <<'EOF'
-          FROM debian:bookworm-slim
-          RUN useradd --create-home --shell /bin/bash sandbox
-          USER sandbox
-          WORKDIR /home/sandbox
-          EOF
+        FROM debian:bookworm-slim
 
-      - name: Build sandbox-common image (root for installs, sandbox at runtime)
-        shell: bash
-        run: |
-          set -euo pipefail
+        RUN useradd --create-home --shell /bin/bash sandbox
 
-          BASE_IMAGE="openclaw-sandbox-smoke-base:bookworm-slim" \
-            TARGET_IMAGE="openclaw-sandbox-common-smoke:bookworm-slim" \
-            PACKAGES="ca-certificates" \
-            INSTALL_PNPM=0 \
-            INSTALL_BUN=0 \
-            INSTALL_BREW=0 \
-            FINAL_USER=sandbox \
-            scripts/sandbox-common-setup.sh
+        USER sandbox
 
-          u="$(docker run --rm openclaw-sandbox-common-smoke:bookworm-slim sh -lc 'id -un')"
-          test "$u" = "sandbox"
+        WORKDIR /home/sandbox
+
+        EOF
+
+        '
+    - name: Build sandbox-common image (root for installs, sandbox at runtime)
+      shell: bash
+      run: "set -euo pipefail\n\nBASE_IMAGE=\"openclaw-sandbox-smoke-base:bookworm-slim\"\
+        \ \\\n  TARGET_IMAGE=\"openclaw-sandbox-common-smoke:bookworm-slim\" \\\n\
+        \  PACKAGES=\"ca-certificates\" \\\n  INSTALL_PNPM=0 \\\n  INSTALL_BUN=0 \\\
+        \n  INSTALL_BREW=0 \\\n  FINAL_USER=sandbox \\\n  scripts/sandbox-common-setup.sh\n\
+        \nu=\"$(docker run --rm openclaw-sandbox-common-smoke:bookworm-slim sh -lc\
+        \ 'id -un')\"\ntest \"$u\" = \"sandbox\"\n"
+'on':
+  workflow_dispatch: null

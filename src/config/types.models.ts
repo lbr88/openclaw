@@ -20,12 +20,16 @@ export type ModelCompatConfig = {
   supportsUsageInStreaming?: boolean;
   supportsTools?: boolean;
   supportsStrictMode?: boolean;
+  toolSchemaProfile?: "xai";
+  nativeWebSearchTool?: boolean;
+  toolCallArgumentsEncoding?: "html-entities";
   maxTokensField?: "max_completion_tokens" | "max_tokens";
   thinkingFormat?: "openai" | "zai" | "qwen";
   requiresToolResultName?: boolean;
   requiresAssistantAfterToolResult?: boolean;
   requiresThinkingAsText?: boolean;
   requiresMistralToolIds?: boolean;
+  requiresOpenAiAnthropicToolPayload?: boolean;
 };
 
 export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token";

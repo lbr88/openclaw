@@ -1,3 +1,4 @@
+import { createScopedDmSecurityResolver } from "openclaw/plugin-sdk/channel-config-helpers";
 import {
   buildChannelConfigSchema,
   collectStatusIssuesFromLastError,
@@ -7,12 +8,18 @@ import {
   mapAllowFromEntries,
   type ChannelPlugin,
 } from "openclaw/plugin-sdk/nostr";
+import {
+  buildPassiveChannelStatusSummary,
+  buildTrafficStatusSummary,
+} from "../../shared/channel-status-summary.js";
 import type { NostrProfile } from "./config-schema.js";
 import { NostrConfigSchema } from "./config-schema.js";
 import type { MetricEvent, MetricsSnapshot } from "./metrics.js";
 import { normalizePubkey, startNostrBus, type NostrBusHandle } from "./nostr-bus.js";
 import type { ProfilePublishResult } from "./nostr-profile.js";
 import { getNostrRuntime } from "./runtime.js";
+import { resolveNostrOutboundSessionRoute } from "./session-route.js";
+import { nostrSetupAdapter, nostrSetupWizard } from "./setup-surface.js";
 import {
   listNostrAccountIds,
   resolveDefaultNostrAccountId,
@@ -25,6 +32,22 @@ const activeBuses = new Map<string, NostrBusHandle>();
 
 // Store metrics snapshots per account (for status reporting)
 const metricsSnapshots = new Map<string, MetricsSnapshot>();
+
+const resolveNostrDmPolicy = createScopedDmSecurityResolver<ResolvedNostrAccount>({
+  channelKey: "nostr",
+  resolvePolicy: (account) => account.config.dmPolicy,
+  resolveAllowFrom: (account) => account.config.allowFrom,
+  policyPathSuffix: "dmPolicy",
+  defaultPolicy: "pairing",
+  approveHint: formatPairingApproveHint("nostr"),
+  normalizeEntry: (raw) => {
+    try {
+      return normalizePubkey(raw.replace(/^nostr:/i, "").trim());
+    } catch {
+      return raw.trim();
+    }
+  },
+});
 
 export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
   id: "nostr",
@@ -43,6 +66,8 @@ export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
   },
   reload: { configPrefixes: ["channels.nostr"] },
   configSchema: buildChannelConfigSchema(NostrConfigSchema),
+  setup: nostrSetupAdapter,
+  setupWizard: nostrSetupWizard,
 
   config: {
     listAccountIds: (cfg) => listNostrAccountIds(cfg),
@@ -94,22 +119,7 @@ export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
   },
 
   security: {
-    resolveDmPolicy: ({ account }) => {
-      return {
-        policy: account.config.dmPolicy ?? "pairing",
-        allowFrom: account.config.allowFrom ?? [],
-        policyPath: "channels.nostr.dmPolicy",
-        allowFromPath: "channels.nostr.allowFrom",
-        approveHint: formatPairingApproveHint("nostr"),
-        normalizeEntry: (raw) => {
-          try {
-            return normalizePubkey(raw.replace(/^nostr:/i, "").trim());
-          } catch {
-            return raw.trim();
-          }
-        },
-      };
-    },
+    resolveDmPolicy: resolveNostrDmPolicy,
   },
 
   messaging: {
@@ -129,6 +139,7 @@ export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
       },
       hint: "<npub|hex pubkey|nostr:npub...>",
     },
+    resolveOutboundSessionRoute: (params) => resolveNostrOutboundSessionRoute(params),
   },
 
   outbound: {
@@ -160,14 +171,10 @@ export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
   status: {
     defaultRuntime: createDefaultChannelRuntimeState(DEFAULT_ACCOUNT_ID),
     collectStatusIssues: (accounts) => collectStatusIssuesFromLastError("nostr", accounts),
-    buildChannelSummary: ({ snapshot }) => ({
-      configured: snapshot.configured ?? false,
-      publicKey: snapshot.publicKey ?? null,
-      running: snapshot.running ?? false,
-      lastStartAt: snapshot.lastStartAt ?? null,
-      lastStopAt: snapshot.lastStopAt ?? null,
-      lastError: snapshot.lastError ?? null,
-    }),
+    buildChannelSummary: ({ snapshot }) =>
+      buildPassiveChannelStatusSummary(snapshot, {
+        publicKey: snapshot.publicKey ?? null,
+      }),
     buildAccountSnapshot: ({ account, runtime }) => ({
       accountId: account.accountId,
       name: account.name,
@@ -179,8 +186,7 @@ export const nostrPlugin: ChannelPlugin<ResolvedNostrAccount> = {
       lastStartAt: runtime?.lastStartAt ?? null,
       lastStopAt: runtime?.lastStopAt ?? null,
       lastError: runtime?.lastError ?? null,
-      lastInboundAt: runtime?.lastInboundAt ?? null,
-      lastOutboundAt: runtime?.lastOutboundAt ?? null,
+      ...buildTrafficStatusSummary(runtime),
     }),
   },
 

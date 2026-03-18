@@ -1,74 +1,9 @@
 name: Workflow Sanity
-true:
-  pull_request: null
-  push:
-    branches:
-    - main
-  workflow_dispatch: null
-concurrency:
-  group: workflow-sanity-${{ github.workflow }}-${{ github.event.pull_request.number
-    || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+on:
+  workflow_dispatch: {}
 jobs:
-  no-tabs:
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+  disabled:
+    runs-on: ubuntu-latest
+    if: false
     steps:
-    - name: Checkout
-      uses: actions/checkout@v6
-    - name: Fail on tabs in workflow files
-      run: "python - <<'PY'\nfrom __future__ import annotations\n\nimport pathlib\n\
-        import sys\n\nroot = pathlib.Path(\".github/workflows\")\nbad: list[str] =\
-        \ []\nfor path in sorted(root.rglob(\"*.yml\")):\n  if b\"\\t\" in path.read_bytes():\n\
-        \    bad.append(str(path))\n\nfor path in sorted(root.rglob(\"*.yaml\")):\n\
-        \  if b\"\\t\" in path.read_bytes():\n    bad.append(str(path))\n\nif bad:\n\
-        \  print(\"Tabs found in workflow file(s):\")\n  for path in bad:\n    print(f\"\
-        - {path}\")\n  sys.exit(1)\nPY\n"
-  actionlint:
-    if: github.event_name != 'workflow_dispatch'
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v6
-    - name: Install actionlint
-      shell: bash
-      run: 'set -euo pipefail
-
-        ACTIONLINT_VERSION="1.7.11"
-
-        archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-
-        base_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-
-        curl -sSfL -o "${archive}" "${base_url}/${archive}"
-
-        curl -sSfL -o checksums.txt "${base_url}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-
-        grep " ${archive}\$" checksums.txt | sha256sum -c -
-
-        tar -xzf "${archive}" actionlint
-
-        sudo install -m 0755 actionlint /usr/local/bin/actionlint
-
-        '
-    - name: Lint workflows
-      run: actionlint
-    - name: Disallow direct inputs interpolation in composite run blocks
-      run: python3 scripts/check-composite-action-input-interpolation.py
-  config-docs-drift:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v6
-    - name: Setup Node environment
-      uses: ./.github/actions/setup-node-env
-      with:
-        install-bun: 'false'
-        use-sticky-disk: 'false'
-    - name: Check config docs drift statefile
-      run: pnpm config:docs:check
-'on':
-  workflow_dispatch: null
+      - run: echo "disabled on fork"

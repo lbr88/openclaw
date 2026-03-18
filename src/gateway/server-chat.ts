@@ -454,7 +454,7 @@ export type AgentEventHandlerOptions = {
 
 export function createAgentEventHandler({
   broadcast,
-  broadcastToConnIds,
+  broadcastToConnIds: _broadcastToConnIds,
   nodeSendToSession,
   agentRunSeq,
   chatRunState,
@@ -750,6 +750,11 @@ export function createAgentEventHandler({
           broadcastToConnIds("session.tool", toolPayload, sessionSubscribers, { dropIfSlow: true });
         }
       }
+      // Also broadcast tool events to all connected clients so sub-agent tool
+      // calls reach subscribed WS UIs (same delivery as non-tool events).
+      // The toolPayload already strips result/partialResult unless verbose=full.
+      // Frontend filters by sessionKey (only displays active/subscribed sessions).
+      broadcast("agent", toolPayload, { dropIfSlow: true });
     } else {
       broadcast("agent", agentPayload);
     }
@@ -759,7 +764,7 @@ export function createAgentEventHandler({
 
     if (isControlUiVisible && sessionKey) {
       // Send tool events to node/channel subscribers only when verbose is enabled;
-      // WS clients already received the event above via broadcastToConnIds.
+      // WS clients already received the event above via broadcast.
       if (!isToolEvent || toolVerbose !== "off") {
         nodeSendToSession(sessionKey, "agent", isToolEvent ? toolPayload : agentPayload);
       }

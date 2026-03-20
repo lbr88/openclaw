@@ -91,11 +91,12 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
       data: {
         phase: "end",
         endedAt: Date.now(),
+        usage: ctx.getUsageTotals(),
       },
     });
     void ctx.params.onAgentEvent?.({
       stream: "lifecycle",
-      data: { phase: "end" },
+      data: { phase: "end", usage: ctx.getUsageTotals() },
     });
   }
 

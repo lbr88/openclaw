@@ -618,6 +618,13 @@ export function createAgentEventHandler({
     jobState: "done" | "error",
     error?: unknown,
     stopReason?: string,
+    usage?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      total?: number;
+    },
   ) => {
     const { text, shouldSuppressSilent } = resolveBufferedChatTextState(clientRunId, sourceRunId);
     // Flush any throttled delta so streaming clients receive the complete text
@@ -635,6 +642,7 @@ export function createAgentEventHandler({
         seq,
         state: "final" as const,
         ...(stopReason && { stopReason }),
+        ...(usage && { usage }),
         message:
           text && !shouldSuppressSilent
             ? {
@@ -773,6 +781,15 @@ export function createAgentEventHandler({
       } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
         const evtStopReason =
           typeof evt.data?.stopReason === "string" ? evt.data.stopReason : undefined;
+        const evtUsage = evt.data?.usage as
+          | {
+              input?: number;
+              output?: number;
+              cacheRead?: number;
+              cacheWrite?: number;
+              total?: number;
+            }
+          | undefined;
         if (chatLink) {
           const finished = chatRunState.registry.shift(evt.runId);
           if (!finished) {
@@ -787,6 +804,7 @@ export function createAgentEventHandler({
             lifecyclePhase === "error" ? "error" : "done",
             evt.data?.error,
             evtStopReason,
+            evtUsage,
           );
         } else {
           emitChatFinal(
@@ -797,6 +815,7 @@ export function createAgentEventHandler({
             lifecyclePhase === "error" ? "error" : "done",
             evt.data?.error,
             evtStopReason,
+            evtUsage,
           );
         }
       } else if (isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {

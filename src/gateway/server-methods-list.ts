@@ -111,6 +111,12 @@ const BASE_METHODS = [
   "chat.history",
   "chat.abort",
   "chat.send",
+  // Voice turn-taking protocol (Refs: lbr88/talkyn-native#170)
+  "chat.turn.start",
+  "chat.turn.append",
+  "chat.turn.update",
+  "chat.turn.commit",
+  "chat.turn.cancel",
   // Chunked file upload methods
   "file.chunk",
   "file.complete",
@@ -144,6 +150,7 @@ export const GATEWAY_EVENTS = [
   "voicewake.changed",
   "exec.approval.requested",
   "exec.approval.resolved",
+  "chat.turn.timeout",
   "file.uploaded",
   GATEWAY_EVENT_UPDATE_AVAILABLE,
 ];

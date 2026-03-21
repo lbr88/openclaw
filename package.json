@@ -687,6 +687,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@grammyjs/types": "^3.25.0",
     "@lit-labs/signals": "^0.2.0",
     "@lit/context": "^1.1.6",
@@ -697,6 +699,7 @@
     "@types/ws": "^8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260317.1",
     "@vitest/coverage-v8": "^4.1.0",
+    "husky": "^9.1.7",
     "jscpd": "4.0.8",
     "jsdom": "^29.0.0",
     "lit": "^3.3.2",

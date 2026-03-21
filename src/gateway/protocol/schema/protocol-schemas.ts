@@ -159,6 +159,13 @@ import {
 } from "./sessions.js";
 import { PresenceEntrySchema, SnapshotSchema, StateVersionSchema } from "./snapshot.js";
 import {
+  ChatTurnAppendParamsSchema,
+  ChatTurnCancelParamsSchema,
+  ChatTurnCommitParamsSchema,
+  ChatTurnStartParamsSchema,
+  ChatTurnUpdateParamsSchema,
+} from "./voice-turns.js";
+import {
   WizardCancelParamsSchema,
   WizardNextParamsSchema,
   WizardNextResultSchema,
@@ -314,6 +321,11 @@ export const ProtocolSchemas = {
   FileCompleteParams: FileCompleteParamsSchema,
   FileCancelParams: FileCancelParamsSchema,
   UpdateRunParams: UpdateRunParamsSchema,
+  ChatTurnStartParams: ChatTurnStartParamsSchema,
+  ChatTurnAppendParams: ChatTurnAppendParamsSchema,
+  ChatTurnUpdateParams: ChatTurnUpdateParamsSchema,
+  ChatTurnCommitParams: ChatTurnCommitParamsSchema,
+  ChatTurnCancelParams: ChatTurnCancelParamsSchema,
   TickEvent: TickEventSchema,
   ShutdownEvent: ShutdownEventSchema,
 } satisfies Record<string, TSchema>;

@@ -13,6 +13,7 @@ import { getHandshakeTimeoutMs } from "../server-constants.js";
 import { cleanupFileUploadManager } from "../server-methods/file-upload.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
 import { formatError } from "../server-utils.js";
+import { clearVoiceTurnsByConnId } from "../voice-turn-state.js";
 import { logWs } from "../ws-log.js";
 import { getHealthVersion, incrementPresenceVersion } from "./health-state.js";
 import { broadcastPresenceSnapshot } from "./presence-events.js";
@@ -254,6 +255,13 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
       // Clean up any in-progress file uploads for this connection.
       cleanupFileUploadManager(connId);
+      // Clean up any in-progress voice turns owned by this connection.
+      const clearedVoiceTurns = clearVoiceTurnsByConnId(connId);
+      if (clearedVoiceTurns.length > 0) {
+        logWsControl.info(
+          `voice turn cleanup on disconnect: conn=${connId} sessions=${clearedVoiceTurns.join(",")}`,
+        );
+      }
       logWs("out", "close", {
         connId,
         code,

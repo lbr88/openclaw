@@ -87,6 +87,7 @@ export const HelloOkSchema = Type.Object(
       },
       { additionalProperties: false },
     ),
+    caps: Type.Optional(Type.Array(NonEmptyString)),
     snapshot: SnapshotSchema,
     canvasHostUrl: Type.Optional(NonEmptyString),
     auth: Type.Optional(

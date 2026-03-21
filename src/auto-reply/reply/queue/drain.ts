@@ -1,3 +1,4 @@
+import { hasActiveVoiceTurn } from "../../../gateway/voice-turn-state.js";
 import { defaultRuntime } from "../../../runtime.js";
 import { resolveGlobalMap } from "../../../shared/global-singleton.js";
 import {
@@ -13,6 +14,36 @@ import {
 import { isRoutableChannel } from "../route-reply.js";
 import { FOLLOWUP_QUEUES } from "./state.js";
 import type { FollowupRun } from "./types.js";
+
+/**
+ * Poll interval when waiting for a voice turn to clear before draining.
+ * Kept short so drain resumes promptly after turn commit/cancel.
+ */
+const VOICE_TURN_POLL_MS = 200;
+/** Maximum time to wait for a voice turn to clear before draining anyway. */
+const VOICE_TURN_MAX_WAIT_MS = 65_000;
+
+/**
+ * Wait for an active voice turn on the given session key to clear.
+ * Returns immediately if no voice turn is active. The failsafe timer in
+ * voice-turn-state.ts will auto-clear stale turns, so this wait is bounded.
+ */
+async function waitForVoiceTurnClear(sessionKey: string): Promise<void> {
+  if (!hasActiveVoiceTurn(sessionKey)) {
+    return;
+  }
+  const deadline = Date.now() + VOICE_TURN_MAX_WAIT_MS;
+  return new Promise<void>((resolve) => {
+    const check = () => {
+      if (!hasActiveVoiceTurn(sessionKey) || Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      setTimeout(check, VOICE_TURN_POLL_MS);
+    };
+    check();
+  });
+}
 
 // Persists the most recent runFollowup callback per queue key so that
 // enqueueFollowupRun can restart a drain that finished and deleted the queue.
@@ -84,6 +115,11 @@ export function scheduleFollowupDrain(
       const collectState = { forceIndividualCollect: false };
       while (queue.items.length > 0 || queue.droppedCount > 0) {
         await waitForQueueDebounce(queue);
+        // Hold drain while a voice turn is active for this session.
+        // The queue key is typically the session key; if a voice turn
+        // is in progress, the user is still speaking and we should not
+        // dispatch queued messages until the turn completes or times out.
+        await waitForVoiceTurnClear(key);
         if (queue.mode === "collect") {
           // Once the batch is mixed, never collect again within this drain.
           // Prevents “collect after shift” collapsing different targets.

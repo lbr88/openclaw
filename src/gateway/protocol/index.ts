@@ -268,6 +268,16 @@ import {
   WizardStatusResultSchema,
   type WizardStep,
   WizardStepSchema,
+  type ChatTurnStartParams,
+  ChatTurnStartParamsSchema,
+  type ChatTurnAppendParams,
+  ChatTurnAppendParamsSchema,
+  type ChatTurnUpdateParams,
+  ChatTurnUpdateParamsSchema,
+  type ChatTurnCommitParams,
+  ChatTurnCommitParamsSchema,
+  type ChatTurnCancelParams,
+  ChatTurnCancelParamsSchema,
 } from "./schema.js";
 
 const ajv = new (AjvPkg as unknown as new (opts?: object) => import("ajv").default)({
@@ -456,6 +466,20 @@ export const validateUpdateRunParams = ajv.compile<UpdateRunParams>(UpdateRunPar
 export const validateWebLoginStartParams =
   ajv.compile<WebLoginStartParams>(WebLoginStartParamsSchema);
 export const validateWebLoginWaitParams = ajv.compile<WebLoginWaitParams>(WebLoginWaitParamsSchema);
+export const validateChatTurnStartParams =
+  ajv.compile<ChatTurnStartParams>(ChatTurnStartParamsSchema);
+export const validateChatTurnAppendParams = ajv.compile<ChatTurnAppendParams>(
+  ChatTurnAppendParamsSchema,
+);
+export const validateChatTurnUpdateParams = ajv.compile<ChatTurnUpdateParams>(
+  ChatTurnUpdateParamsSchema,
+);
+export const validateChatTurnCommitParams = ajv.compile<ChatTurnCommitParams>(
+  ChatTurnCommitParamsSchema,
+);
+export const validateChatTurnCancelParams = ajv.compile<ChatTurnCancelParams>(
+  ChatTurnCancelParamsSchema,
+);
 
 export function formatValidationErrors(errors: ErrorObject[] | null | undefined) {
   if (!errors?.length) {
@@ -596,6 +620,11 @@ export {
   ChatHistoryParamsSchema,
   ChatSendParamsSchema,
   ChatInjectParamsSchema,
+  ChatTurnStartParamsSchema,
+  ChatTurnAppendParamsSchema,
+  ChatTurnUpdateParamsSchema,
+  ChatTurnCommitParamsSchema,
+  ChatTurnCancelParamsSchema,
   FileChunkParamsSchema,
   FileCompleteParamsSchema,
   FileCancelParamsSchema,
@@ -716,6 +745,11 @@ export type {
   PollParams,
   UpdateRunParams,
   ChatInjectParams,
+  ChatTurnStartParams,
+  ChatTurnAppendParams,
+  ChatTurnUpdateParams,
+  ChatTurnCommitParams,
+  ChatTurnCancelParams,
   FileChunkParams,
   FileCompleteParams,
   FileCancelParams,

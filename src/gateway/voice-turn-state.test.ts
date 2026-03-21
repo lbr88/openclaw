@@ -14,14 +14,15 @@ import {
   VOICE_TURN_FAILSAFE_TIMEOUT_MS,
 } from "./voice-turn-state.js";
 
+const defaultOnTimeout = vi.fn();
+
 afterEach(() => {
   clearAllVoiceTurns();
+  defaultOnTimeout.mockReset();
   vi.restoreAllMocks();
 });
 
 describe("voice turn state", () => {
-  const defaultOnTimeout = vi.fn();
-
   it("starts a voice turn and tracks state", () => {
     const result = startVoiceTurn({
       sessionKey: "main",
@@ -37,6 +38,7 @@ describe("voice turn state", () => {
     expect(result.state.sessionKey).toBe("main");
     expect(result.state.connId).toBe("conn-abc");
     expect(result.state.fragments).toEqual([]);
+    expect(result.state.segments.size).toBe(0);
     expect(result.state.speaking).toBe(false);
     expect(hasActiveVoiceTurn("main")).toBe(true);
     expect(getVoiceTurn("main")?.turnId).toBe("turn-1");
@@ -80,16 +82,41 @@ describe("voice turn state", () => {
     expect(getActiveVoiceTurns().size).toBe(2);
   });
 
-  it("appends text fragments", () => {
+  it("stores fragments ordered by segmentIndex", () => {
     startVoiceTurn({
       sessionKey: "main",
       turnId: "turn-1",
       connId: "conn-abc",
       onTimeout: defaultOnTimeout,
     });
-    appendVoiceTurnText("main", "turn-1", "hello ");
+    appendVoiceTurnText("main", "turn-1", "world", 1);
+    appendVoiceTurnText("main", "turn-1", "hello", 0);
+    expect(getVoiceTurn("main")?.fragments).toEqual(["hello", "world"]);
+  });
+
+  it("replaces repeated segment indexes instead of duplicating them", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    appendVoiceTurnText("main", "turn-1", "hello", 0);
+    appendVoiceTurnText("main", "turn-1", "wurld", 1);
+    appendVoiceTurnText("main", "turn-1", "world", 1);
+    expect(getVoiceTurn("main")?.fragments).toEqual(["hello", "world"]);
+  });
+
+  it("assigns implicit segment indexes when callers omit segmentIndex", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    appendVoiceTurnText("main", "turn-1", "hello");
     appendVoiceTurnText("main", "turn-1", "world");
-    expect(getVoiceTurn("main")?.fragments).toEqual(["hello ", "world"]);
+    expect(getVoiceTurn("main")?.fragments).toEqual(["hello", "world"]);
   });
 
   it("rejects append with wrong turnId", () => {
@@ -99,13 +126,24 @@ describe("voice turn state", () => {
       connId: "conn-abc",
       onTimeout: defaultOnTimeout,
     });
-    const result = appendVoiceTurnText("main", "wrong-id", "text");
+    const result = appendVoiceTurnText("main", "wrong-id", "text", 0);
     expect(result.ok).toBe(false);
   });
 
   it("rejects append when no turn is active", () => {
-    const result = appendVoiceTurnText("main", "turn-1", "text");
+    const result = appendVoiceTurnText("main", "turn-1", "text", 0);
     expect(result.ok).toBe(false);
+  });
+
+  it("rejects invalid segmentIndex", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    const result = appendVoiceTurnText("main", "turn-1", "text", -1);
+    expect(result).toEqual({ ok: false, reason: "invalid segmentIndex" });
   });
 
   it("updates speech state", () => {
@@ -121,15 +159,15 @@ describe("voice turn state", () => {
     expect(getVoiceTurn("main")?.speaking).toBe(false);
   });
 
-  it("commits a turn and returns accumulated text", () => {
+  it("commits a turn using deterministic spacing fallback", () => {
     startVoiceTurn({
       sessionKey: "main",
       turnId: "turn-1",
       connId: "conn-abc",
       onTimeout: defaultOnTimeout,
     });
-    appendVoiceTurnText("main", "turn-1", "hello ");
-    appendVoiceTurnText("main", "turn-1", "world");
+    appendVoiceTurnText("main", "turn-1", "hello", 0);
+    appendVoiceTurnText("main", "turn-1", "world", 1);
     const result = commitVoiceTurn("main", "turn-1");
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -139,20 +177,72 @@ describe("voice turn state", () => {
     expect(hasActiveVoiceTurn("main")).toBe(false);
   });
 
-  it("commits with finalText overriding fragments", () => {
+  it("commits fallback text in segment order after out-of-order appends", () => {
     startVoiceTurn({
       sessionKey: "main",
       turnId: "turn-1",
       connId: "conn-abc",
       onTimeout: defaultOnTimeout,
     });
-    appendVoiceTurnText("main", "turn-1", "partial ");
+    appendVoiceTurnText("main", "turn-1", "there", 2);
+    appendVoiceTurnText("main", "turn-1", "hello", 0);
+    appendVoiceTurnText("main", "turn-1", "wurld", 1);
+    appendVoiceTurnText("main", "turn-1", "world", 1);
+    const result = commitVoiceTurn("main", "turn-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.text).toBe("hello world there");
+  });
+
+  it("normalizes inconsistent fragment spacing in fallback commits", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    appendVoiceTurnText("main", "turn-1", "  hello   ", 0);
+    appendVoiceTurnText("main", "turn-1", "\nworld\t", 1);
+    const result = commitVoiceTurn("main", "turn-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.text).toBe("hello world");
+  });
+
+  it("uses explicit committed text instead of fragment fallback", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    appendVoiceTurnText("main", "turn-1", "partial", 0);
     const result = commitVoiceTurn("main", "turn-1", "final transcript");
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
     expect(result.text).toBe("final transcript");
+  });
+
+  it("treats explicit empty committed text as an empty commit", () => {
+    startVoiceTurn({
+      sessionKey: "main",
+      turnId: "turn-1",
+      connId: "conn-abc",
+      onTimeout: defaultOnTimeout,
+    });
+    appendVoiceTurnText("main", "turn-1", "stale fragment", 0);
+    const result = commitVoiceTurn("main", "turn-1", "   ");
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.text).toBe("");
   });
 
   it("cancels a turn and clears state", () => {

@@ -12,6 +12,11 @@ import {
   ErrorCodes,
   errorShape,
   formatValidationErrors,
+  type ChatTurnAppendParams,
+  type ChatTurnCancelParams,
+  type ChatTurnCommitParams,
+  type ChatTurnStartParams,
+  type ChatTurnUpdateParams,
   validateChatTurnAppendParams,
   validateChatTurnCancelParams,
   validateChatTurnCommitParams,
@@ -41,7 +46,7 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, turnId } = params as { sessionKey: string; turnId: string };
+    const { sessionKey, turnId } = params;
     const connId = client?.connId ?? "";
 
     const result = startVoiceTurn({
@@ -85,13 +90,9 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, turnId, text } = params as {
-      sessionKey: string;
-      turnId: string;
-      text: string;
-    };
+    const { sessionKey, turnId, text, segmentIndex } = params;
 
-    const result = appendVoiceTurnText(sessionKey, turnId, text);
+    const result = appendVoiceTurnText(sessionKey, turnId, text, segmentIndex);
     if (!result.ok) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.reason!));
       return;
@@ -111,11 +112,7 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, turnId, kind } = params as {
-      sessionKey: string;
-      turnId: string;
-      kind: "speech_start" | "speech_end";
-    };
+    const { sessionKey, turnId, kind } = params;
 
     const result = updateVoiceTurnSpeech(sessionKey, turnId, kind);
     if (!result.ok) {
@@ -137,13 +134,9 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, turnId, finalText } = params as {
-      sessionKey: string;
-      turnId: string;
-      finalText?: string;
-    };
+    const { sessionKey, turnId, fullText, segmentCount, commitReason } = params;
 
-    const result = commitVoiceTurn(sessionKey, turnId, finalText);
+    const result = commitVoiceTurn(sessionKey, turnId, fullText);
     if (!result.ok) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.reason));
       return;
@@ -153,14 +146,14 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
     if (!text) {
       // Empty commit — nothing to send to the agent.
       context.logGateway.debug(
-        `voice turn committed (empty): sessionKey=${sessionKey} turnId=${turnId}`,
+        `voice turn committed (empty): sessionKey=${sessionKey} turnId=${turnId} segmentCount=${segmentCount} commitReason=${commitReason}`,
       );
       respond(true, { ok: true, turnId, submitted: false });
       return;
     }
 
     context.logGateway.debug(
-      `voice turn committed: sessionKey=${sessionKey} turnId=${turnId} textLen=${text.length}`,
+      `voice turn committed: sessionKey=${sessionKey} turnId=${turnId} segmentCount=${segmentCount} commitReason=${commitReason} textLen=${text.length}`,
     );
 
     // Dispatch the committed text as a chat.send. We invoke the handler
@@ -186,7 +179,7 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    const { sessionKey, turnId } = params as { sessionKey: string; turnId: string };
+    const { sessionKey, turnId, reason } = params;
 
     const result = cancelVoiceTurn(sessionKey, turnId);
     if (!result.ok) {
@@ -194,13 +187,15 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
       // The frontend may cancel defensively.
       const cleared = clearVoiceTurn(sessionKey);
       context.logGateway.debug(
-        `voice turn cancel (no match): sessionKey=${sessionKey} turnId=${turnId} cleared=${cleared}`,
+        `voice turn cancel (no match): sessionKey=${sessionKey} turnId=${turnId} reason=${reason} cleared=${cleared}`,
       );
       respond(true, { ok: true, turnId, cancelled: cleared });
       return;
     }
 
-    context.logGateway.debug(`voice turn cancelled: sessionKey=${sessionKey} turnId=${turnId}`);
+    context.logGateway.debug(
+      `voice turn cancelled: sessionKey=${sessionKey} turnId=${turnId} reason=${reason}`,
+    );
     respond(true, { ok: true, turnId, cancelled: true });
   },
 };

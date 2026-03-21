@@ -41,7 +41,7 @@ import {
 } from "../../net.js";
 import { resolveNodeCommandAllowlist } from "../../node-command-policy.js";
 import { checkBrowserOrigin } from "../../origin-check.js";
-import { GATEWAY_CLIENT_CAPS, GATEWAY_CLIENT_IDS } from "../../protocol/client-info.js";
+import { GATEWAY_CLIENT_IDS, GATEWAY_SERVER_CAPS } from "../../protocol/client-info.js";
 import {
   ConnectErrorDetailCodes,
   resolveDeviceAuthConnectErrorDetailCode,
@@ -963,7 +963,7 @@ export function attachGatewayWsMessageHandler(params: {
             connId,
           },
           features: { methods: gatewayMethods, events },
-          caps: Object.values(GATEWAY_CLIENT_CAPS),
+          caps: Object.values(GATEWAY_SERVER_CAPS),
           snapshot,
           canvasHostUrl: scopedCanvasHostUrl,
           auth: deviceToken

@@ -44,10 +44,16 @@ export type GatewayClientInfo = {
 
 export const GATEWAY_CLIENT_CAPS = {
   TOOL_EVENTS: "tool-events",
-  VOICE_TURNS: "voice-turns",
 } as const;
 
 export type GatewayClientCap = (typeof GATEWAY_CLIENT_CAPS)[keyof typeof GATEWAY_CLIENT_CAPS];
+
+/** Optional server-advertised capabilities returned in hello-ok.caps. */
+export const GATEWAY_SERVER_CAPS = {
+  VOICE_TURNS: "voice-turns",
+} as const;
+
+export type GatewayServerCap = (typeof GATEWAY_SERVER_CAPS)[keyof typeof GATEWAY_SERVER_CAPS];
 
 const GATEWAY_CLIENT_ID_SET = new Set<GatewayClientId>(Object.values(GATEWAY_CLIENT_IDS));
 const GATEWAY_CLIENT_MODE_SET = new Set<GatewayClientMode>(Object.values(GATEWAY_CLIENT_MODES));

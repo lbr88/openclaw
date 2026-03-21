@@ -4,10 +4,8 @@ import { NonEmptyString } from "./primitives.js";
 /**
  * Voice turn-taking protocol schemas.
  *
- * These schemas define the WebSocket methods the Talkyn frontend sends
- * to coordinate voice-based turns with the gateway. The gateway tracks
- * per-session draft state and holds the followup queue while a voice
- * turn is in progress.
+ * These schemas intentionally mirror the canonical payloads emitted by the
+ * Talkyn frontend so validator drift is caught immediately in tests.
  *
  * Refs: lbr88/talkyn-native#170
  */
@@ -30,6 +28,7 @@ export const ChatTurnAppendParamsSchema = Type.Object(
     sessionKey: NonEmptyString,
     turnId: NonEmptyString,
     text: Type.String(),
+    segmentIndex: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
 );
@@ -38,6 +37,7 @@ export type ChatTurnAppendParams = {
   sessionKey: string;
   turnId: string;
   text: string;
+  segmentIndex: number;
 };
 
 export const ChatTurnUpdateParamsSchema = Type.Object(
@@ -45,7 +45,7 @@ export const ChatTurnUpdateParamsSchema = Type.Object(
     sessionKey: NonEmptyString,
     turnId: NonEmptyString,
     kind: Type.Union([Type.Literal("speech_start"), Type.Literal("speech_end")]),
-    ts: Type.Number(),
+    ts: Type.Integer({ minimum: 0 }),
   },
   { additionalProperties: false },
 );
@@ -61,7 +61,9 @@ export const ChatTurnCommitParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
     turnId: NonEmptyString,
-    finalText: Type.Optional(Type.String()),
+    fullText: Type.String(),
+    segmentCount: Type.Integer({ minimum: 0 }),
+    commitReason: NonEmptyString,
   },
   { additionalProperties: false },
 );
@@ -69,13 +71,16 @@ export const ChatTurnCommitParamsSchema = Type.Object(
 export type ChatTurnCommitParams = {
   sessionKey: string;
   turnId: string;
-  finalText?: string;
+  fullText: string;
+  segmentCount: number;
+  commitReason: string;
 };
 
 export const ChatTurnCancelParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
     turnId: NonEmptyString,
+    reason: NonEmptyString,
   },
   { additionalProperties: false },
 );
@@ -83,4 +88,5 @@ export const ChatTurnCancelParamsSchema = Type.Object(
 export type ChatTurnCancelParams = {
   sessionKey: string;
   turnId: string;
+  reason: string;
 };

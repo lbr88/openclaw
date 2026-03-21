@@ -18,8 +18,12 @@ export type VoiceTurnState = {
   sessionKey: string;
   /** Connection id of the owner (for abort on disconnect). */
   connId: string;
-  /** Accumulated transcript fragments from `chat.turn.append`. */
+  /** Ordered transcript fragments resolved from `chat.turn.append`. */
   fragments: string[];
+  /** Raw transcript fragments keyed by segment index (or implicit fallback index). */
+  segments: Map<number, string>;
+  /** Next implicit segment index for legacy/internal callers that omit it. */
+  nextSegmentIndex: number;
   /** Whether the user is currently speaking. */
   speaking: boolean;
   /** Epoch ms when the turn was started. */
@@ -67,6 +71,8 @@ export function startVoiceTurn(params: {
     sessionKey: params.sessionKey,
     connId: params.connId,
     fragments: [],
+    segments: new Map(),
+    nextSegmentIndex: 0,
     speaking: false,
     startedAtMs: Date.now(),
     failsafeTimer: null,
@@ -91,6 +97,7 @@ export function appendVoiceTurnText(
   sessionKey: string,
   turnId: string,
   text: string,
+  segmentIndex?: number,
 ): { ok: boolean; reason?: string } {
   const state = VOICE_TURNS.get(sessionKey);
   if (!state) {
@@ -99,7 +106,14 @@ export function appendVoiceTurnText(
   if (state.turnId !== turnId) {
     return { ok: false, reason: "turnId mismatch" };
   }
-  state.fragments.push(text);
+
+  const resolvedSegmentIndex = resolveVoiceTurnSegmentIndex(state, segmentIndex);
+  if (resolvedSegmentIndex === null) {
+    return { ok: false, reason: "invalid segmentIndex" };
+  }
+
+  state.segments.set(resolvedSegmentIndex, text);
+  state.fragments = getOrderedVoiceTurnFragments(state);
   return { ok: true };
 }
 
@@ -126,7 +140,7 @@ export type VoiceTurnCommitResult =
 export function commitVoiceTurn(
   sessionKey: string,
   turnId: string,
-  finalText?: string,
+  committedText?: string,
 ): VoiceTurnCommitResult {
   const state = VOICE_TURNS.get(sessionKey);
   if (!state) {
@@ -136,8 +150,8 @@ export function commitVoiceTurn(
     return { ok: false, reason: "turnId mismatch" };
   }
 
-  // Use finalText if provided, otherwise concatenate accumulated fragments.
-  const text = finalText?.trim() ? finalText.trim() : state.fragments.join("").trim();
+  const text =
+    committedText === undefined ? assembleVoiceTurnText(state.fragments) : committedText.trim();
 
   clearVoiceTurnTimer(state);
   VOICE_TURNS.delete(sessionKey);
@@ -204,6 +218,34 @@ export function clearAllVoiceTurns(): void {
     clearVoiceTurnTimer(state);
   }
   VOICE_TURNS.clear();
+}
+
+function resolveVoiceTurnSegmentIndex(state: VoiceTurnState, segmentIndex?: number): number | null {
+  if (segmentIndex === undefined) {
+    const nextSegmentIndex = state.nextSegmentIndex;
+    state.nextSegmentIndex += 1;
+    return nextSegmentIndex;
+  }
+
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+    return null;
+  }
+
+  state.nextSegmentIndex = Math.max(state.nextSegmentIndex, segmentIndex + 1);
+  return segmentIndex;
+}
+
+function getOrderedVoiceTurnFragments(state: VoiceTurnState): string[] {
+  return Array.from(state.segments.entries())
+    .toSorted(([left], [right]) => left - right)
+    .map(([, fragment]) => fragment);
+}
+
+function assembleVoiceTurnText(fragments: string[]): string {
+  return fragments
+    .map((fragment) => fragment.replace(/\s+/g, " ").trim())
+    .filter((fragment) => fragment.length > 0)
+    .join(" ");
 }
 
 function clearVoiceTurnTimer(state: VoiceTurnState): void {

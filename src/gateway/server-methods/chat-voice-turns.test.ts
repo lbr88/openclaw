@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { voiceTurnFrontendContract, withUnexpectedProperty } from "../test-helpers.voice-turns.js";
-import { clearAllVoiceTurns, hasActiveVoiceTurn } from "../voice-turn-state.js";
+import { clearAllVoiceTurns, getVoiceTurn, hasActiveVoiceTurn } from "../voice-turn-state.js";
 import { chatVoiceTurnHandlers } from "./chat-voice-turns.js";
 import type { GatewayRequestHandler } from "./types.js";
 
@@ -186,6 +186,39 @@ describe("chat.turn.cancel", () => {
       voiceTurnFrontendContract.cancel(),
     );
     expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }));
+  });
+
+  it("does not clear a newer active turn on stale cancel for an older turn", () => {
+    invokeHandler(
+      chatVoiceTurnHandlers["chat.turn.start"],
+      voiceTurnFrontendContract.start({ turnId: "turn-1" }),
+    );
+    invokeHandler(
+      chatVoiceTurnHandlers["chat.turn.commit"],
+      voiceTurnFrontendContract.commit({
+        turnId: "turn-1",
+        fullText: "done",
+        segmentCount: 1,
+        commitReason: "manual_send",
+      }),
+    );
+    invokeHandler(
+      chatVoiceTurnHandlers["chat.turn.start"],
+      voiceTurnFrontendContract.start({ turnId: "turn-2" }),
+    );
+
+    const { respond } = invokeHandler(
+      chatVoiceTurnHandlers["chat.turn.cancel"],
+      voiceTurnFrontendContract.cancel({ turnId: "turn-1" }),
+    );
+
+    expect(respond).toHaveBeenCalledWith(true, {
+      ok: true,
+      turnId: "turn-1",
+      cancelled: false,
+    });
+    expect(hasActiveVoiceTurn("main")).toBe(true);
+    expect(getVoiceTurn("main")?.turnId).toBe("turn-2");
   });
 });
 

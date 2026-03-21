@@ -12,11 +12,6 @@ import {
   ErrorCodes,
   errorShape,
   formatValidationErrors,
-  type ChatTurnAppendParams,
-  type ChatTurnCancelParams,
-  type ChatTurnCommitParams,
-  type ChatTurnStartParams,
-  type ChatTurnUpdateParams,
   validateChatTurnAppendParams,
   validateChatTurnCancelParams,
   validateChatTurnCommitParams,
@@ -185,7 +180,7 @@ export const chatVoiceTurnHandlers: GatewayRequestHandlers = {
     if (!result.ok) {
       // Be lenient: if there's no active turn, still respond OK.
       // The frontend may cancel defensively.
-      const cleared = clearVoiceTurn(sessionKey);
+      const cleared = clearVoiceTurn(sessionKey, turnId);
       context.logGateway.debug(
         `voice turn cancel (no match): sessionKey=${sessionKey} turnId=${turnId} reason=${reason} cleared=${cleared}`,
       );

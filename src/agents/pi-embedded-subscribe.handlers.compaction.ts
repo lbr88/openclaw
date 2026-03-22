@@ -10,6 +10,7 @@ export function handleAutoCompactionStart(ctx: EmbeddedPiSubscribeContext) {
   ctx.log.debug(`embedded run compaction start: runId=${ctx.params.runId}`);
   emitAgentEvent({
     runId: ctx.params.runId,
+    sessionKey: ctx.params.sessionKey,
     stream: "compaction",
     data: { phase: "start" },
   });
@@ -63,6 +64,7 @@ export function handleAutoCompactionEnd(
   }
   emitAgentEvent({
     runId: ctx.params.runId,
+    sessionKey: ctx.params.sessionKey,
     stream: "compaction",
     data: { phase: "end", willRetry, completed: hasResult && !wasAborted },
   });

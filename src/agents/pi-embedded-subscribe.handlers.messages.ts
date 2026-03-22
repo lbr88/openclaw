@@ -246,6 +246,7 @@ export function handleMessageUpdate(
       });
       emitAgentEvent({
         runId: ctx.params.runId,
+        sessionKey: ctx.params.sessionKey,
         stream: "assistant",
         data,
       });
@@ -329,6 +330,7 @@ export function handleMessageEnd(
     });
     emitAgentEvent({
       runId: ctx.params.runId,
+      sessionKey: ctx.params.sessionKey,
       stream: "assistant",
       data,
     });

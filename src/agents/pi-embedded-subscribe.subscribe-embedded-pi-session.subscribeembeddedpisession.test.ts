@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { onAgentEvent, resetAgentEventsForTest } from "../infra/agent-events.js";
 import {
   THINKING_TAG_CASES,
   createStubSessionHarness,
@@ -12,6 +13,10 @@ import {
 import { subscribeEmbeddedPiSession } from "./pi-embedded-subscribe.js";
 
 describe("subscribeEmbeddedPiSession", () => {
+  afterEach(() => {
+    resetAgentEventsForTest();
+  });
+
   function createAgentEventHarness(options?: { runId?: string; sessionKey?: string }) {
     const { session, emit } = createStubSessionHarness();
     const onAgentEvent = vi.fn();
@@ -106,7 +111,7 @@ describe("subscribeEmbeddedPiSession", () => {
 
   it.each(THINKING_TAG_CASES)(
     "streams <%s> reasoning via onReasoningStream without leaking into final text",
-    ({ open, close }) => {
+    async ({ open, close }) => {
       const onReasoningStream = vi.fn();
       const onBlockReply = vi.fn();
 
@@ -132,6 +137,7 @@ describe("subscribeEmbeddedPiSession", () => {
       } as AssistantMessage;
 
       emit({ type: "message_end", message: assistantMessage });
+      await Promise.resolve();
 
       expect(onBlockReply).toHaveBeenCalledTimes(1);
       expect(onBlockReply.mock.calls[0][0].text).toBe("Final answer");
@@ -149,7 +155,7 @@ describe("subscribeEmbeddedPiSession", () => {
   );
   it.each(THINKING_TAG_CASES)(
     "suppresses <%s> blocks across chunk boundaries",
-    ({ open, close }) => {
+    async ({ open, close }) => {
       const onBlockReply = vi.fn();
 
       const { emit } = createSubscribedHarness({
@@ -174,6 +180,7 @@ describe("subscribeEmbeddedPiSession", () => {
         message: { role: "assistant" },
         assistantMessageEvent: { type: "text_end" },
       });
+      await Promise.resolve();
 
       const payloadTexts = onBlockReply.mock.calls
         .map((call) => call[0]?.text)
@@ -227,6 +234,107 @@ describe("subscribeEmbeddedPiSession", () => {
       .filter((value): value is string => typeof value === "string");
     expect(streamTexts.at(-1)).toBe("Reasoning:\n_Checking files done_");
     expect(onReasoningEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits thinking agent events in stream mode even without onReasoningStream callback", () => {
+    resetAgentEventsForTest();
+    const seen: Array<{ stream?: string; sessionKey?: string; data?: Record<string, unknown> }> =
+      [];
+    const stop = onAgentEvent((evt) => {
+      if (evt.runId === "run-thinking-no-callback") {
+        seen.push(evt);
+      }
+    });
+
+    try {
+      const { emit } = createSubscribedHarness({
+        runId: "run-thinking-no-callback",
+        reasoningMode: "stream",
+        sessionKey: "session-thinking",
+      });
+
+      emit({
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "Checking files" }],
+        },
+        assistantMessageEvent: {
+          type: "thinking_delta",
+          delta: "Checking files",
+        },
+      });
+
+      expect(seen).toContainEqual(
+        expect.objectContaining({
+          stream: "thinking",
+          sessionKey: "session-thinking",
+          data: expect.objectContaining({
+            text: "Reasoning:\n_Checking files_",
+            delta: "Reasoning:\n_Checking files_",
+          }),
+        }),
+      );
+    } finally {
+      stop();
+    }
+  });
+
+  it("emits explicit sessionKey on assistant/tool/compaction/lifecycle streams", async () => {
+    resetAgentEventsForTest();
+    const seen: Array<{ stream?: string; sessionKey?: string; data?: Record<string, unknown> }> =
+      [];
+    const stop = onAgentEvent((evt) => {
+      if (evt.runId === "run-explicit-session-key") {
+        seen.push(evt);
+      }
+    });
+
+    try {
+      const { emit } = createSubscribedHarness({
+        runId: "run-explicit-session-key",
+        sessionKey: "session-explicit",
+      });
+
+      emit({ type: "agent_start" });
+      emit({ type: "message_start", message: { role: "assistant" } });
+      emit({
+        type: "message_update",
+        message: { role: "assistant" },
+        assistantMessageEvent: { type: "text_delta", delta: "Hello" },
+      });
+      emit({
+        type: "tool_execution_start",
+        toolName: "read",
+        toolCallId: "tool-1",
+        args: { path: "/tmp/demo.txt" },
+      });
+      emit({ type: "auto_compaction_start" });
+      emit({ type: "auto_compaction_end", result: { ok: true } });
+      emit({ type: "agent_end" });
+      await Promise.resolve();
+
+      expect(
+        seen
+          .filter(
+            (evt) =>
+              evt.stream === "assistant" ||
+              evt.stream === "tool" ||
+              evt.stream === "compaction" ||
+              evt.stream === "lifecycle",
+          )
+          .map((evt) => ({ stream: evt.stream, sessionKey: evt.sessionKey })),
+      ).toEqual([
+        { stream: "lifecycle", sessionKey: "session-explicit" },
+        { stream: "assistant", sessionKey: "session-explicit" },
+        { stream: "tool", sessionKey: "session-explicit" },
+        { stream: "compaction", sessionKey: "session-explicit" },
+        { stream: "compaction", sessionKey: "session-explicit" },
+        { stream: "lifecycle", sessionKey: "session-explicit" },
+      ]);
+    } finally {
+      stop();
+    }
   });
 
   it("emits reasoning end once when native and tagged reasoning end overlap", () => {

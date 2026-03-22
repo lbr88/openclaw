@@ -876,6 +876,38 @@ describe("agent event handler", () => {
     expect(payload.sessionKey).toBe("session-from-event");
   });
 
+  it("uses explicit sessionKey on thinking events so webchat can filter live reasoning", () => {
+    const { broadcast, nodeSendToSession, handler } = createHarness({
+      resolveSessionKeyForRun: () => undefined,
+    });
+
+    handler({
+      runId: "run-thinking-session-key",
+      seq: 1,
+      stream: "thinking",
+      ts: 1_234,
+      sessionKey: "session-thinking",
+      data: {
+        text: "Reasoning:\n_Checking files_",
+        delta: "Reasoning:\n_Checking files_",
+      },
+    });
+
+    const payload = expectSingleAgentBroadcastPayload(broadcast);
+    expect(payload.sessionKey).toBe("session-thinking");
+    expect(payload.stream).toBe("thinking");
+
+    const nodeCalls = nodeSendToSession.mock.calls.filter(([, event]) => event === "agent");
+    expect(nodeCalls).toHaveLength(1);
+    expect(nodeCalls[0]?.[0]).toBe("session-thinking");
+    expect(nodeCalls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        stream: "thinking",
+        sessionKey: "session-thinking",
+      }),
+    );
+  });
+
   it("remaps chat-linked tool runId for non-full verbose payloads", () => {
     const { broadcastToConnIds, chatRunState, toolEventRecipients, handler } = createHarness({
       resolveSessionKeyForRun: () => "session-tool-remap",

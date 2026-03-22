@@ -45,7 +45,9 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     reasoningMode,
     includeReasoning: reasoningMode === "on",
     shouldEmitPartialReplies: !(reasoningMode === "on" && !params.onBlockReply),
-    streamReasoning: reasoningMode === "stream" && typeof params.onReasoningStream === "function",
+    // Control UI consumes live thinking via agent events; do not require a
+    // separate onReasoningStream callback just to open the stream.
+    streamReasoning: reasoningMode === "stream",
     deltaBuffer: "",
     blockBuffer: "",
     // Track if a streamed chunk opened a <think> block (stateful across chunks).
@@ -554,7 +556,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   };
 
   const emitReasoningStream = (text: string) => {
-    if (!state.streamReasoning || !params.onReasoningStream) {
+    if (!state.streamReasoning) {
       return;
     }
     const formatted = formatReasoningMessage(text);
@@ -573,6 +575,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     // Broadcast thinking event to WebSocket clients in real-time
     emitAgentEvent({
       runId: params.runId,
+      sessionKey: params.sessionKey,
       stream: "thinking",
       data: {
         text: formatted,
@@ -580,7 +583,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       },
     });
 
-    void params.onReasoningStream({
+    void params.onReasoningStream?.({
       text: formatted,
     });
   };

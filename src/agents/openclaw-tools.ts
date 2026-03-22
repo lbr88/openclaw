@@ -26,6 +26,7 @@ import { createSessionsYieldTool } from "./tools/sessions-yield-tool.js";
 import { createSubagentsTool } from "./tools/subagents-tool.js";
 import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
+import { createWorkflowWaitTool } from "./tools/workflow-wait-tool.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 export function createOpenClawTools(
@@ -200,6 +201,11 @@ export function createOpenClawTools(
     createSessionsYieldTool({
       sessionId: options?.sessionId,
       onYield: options?.onYield,
+    }),
+    createWorkflowWaitTool({
+      callerSessionKey: options?.agentSessionKey,
+      onYield: options?.onYield,
+      config: options?.config,
     }),
     createSessionsSpawnTool({
       agentSessionKey: options?.agentSessionKey,

@@ -1,4 +1,4 @@
-export type AgentInternalEventType = "task_completion";
+export type AgentInternalEventType = "task_completion" | "workflow_event";
 
 export type AgentTaskCompletionInternalEvent = {
   type: "task_completion";
@@ -14,7 +14,26 @@ export type AgentTaskCompletionInternalEvent = {
   replyInstruction: string;
 };
 
-export type AgentInternalEvent = AgentTaskCompletionInternalEvent;
+/**
+ * Injected into an orchestrator turn when a workflow_wait resolves.
+ * The orchestrator receives this as runtime context so it can inspect
+ * the matched event and continue from where it yielded.
+ */
+export type AgentWorkflowEventInternalEvent = {
+  type: "workflow_event";
+  /** Stable workflow event id. */
+  eventId: string;
+  /** Workflow event kind (e.g. "subagent.completed"). */
+  kind: string;
+  ts: number;
+  sessionKey?: string;
+  runId?: string;
+  parentSessionKey?: string;
+  childSessionKey?: string;
+  data: Record<string, unknown>;
+};
+
+export type AgentInternalEvent = AgentTaskCompletionInternalEvent | AgentWorkflowEventInternalEvent;
 
 function formatTaskCompletionEvent(event: AgentTaskCompletionInternalEvent): string {
   const lines = [
@@ -38,6 +57,36 @@ function formatTaskCompletionEvent(event: AgentTaskCompletionInternalEvent): str
   return lines.join("\n");
 }
 
+function formatWorkflowEventInternalEvent(event: AgentWorkflowEventInternalEvent): string {
+  const lines = [
+    "[Internal workflow event]",
+    `event_id: ${event.eventId}`,
+    `kind: ${event.kind}`,
+    `ts: ${event.ts}`,
+  ];
+  if (event.sessionKey) {
+    lines.push(`session_key: ${event.sessionKey}`);
+  }
+  if (event.runId) {
+    lines.push(`run_id: ${event.runId}`);
+  }
+  if (event.parentSessionKey) {
+    lines.push(`parent_session_key: ${event.parentSessionKey}`);
+  }
+  if (event.childSessionKey) {
+    lines.push(`child_session_key: ${event.childSessionKey}`);
+  }
+  if (event.data && Object.keys(event.data).length > 0) {
+    lines.push(`data: ${JSON.stringify(event.data)}`);
+  }
+  lines.push(
+    "",
+    "Action:",
+    "The workflow_wait call has resolved. Resume your orchestration from the point you yielded.",
+  );
+  return lines.join("\n");
+}
+
 export function formatAgentInternalEventsForPrompt(events?: AgentInternalEvent[]): string {
   if (!events || events.length === 0) {
     return "";
@@ -46,6 +95,9 @@ export function formatAgentInternalEventsForPrompt(events?: AgentInternalEvent[]
     .map((event) => {
       if (event.type === "task_completion") {
         return formatTaskCompletionEvent(event);
+      }
+      if (event.type === "workflow_event") {
+        return formatWorkflowEventInternalEvent(event);
       }
       return "";
     })

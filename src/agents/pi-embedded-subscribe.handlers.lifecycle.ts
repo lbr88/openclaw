@@ -18,6 +18,7 @@ export function handleAgentStart(ctx: EmbeddedPiSubscribeContext) {
   ctx.log.debug(`embedded run agent start: runId=${ctx.params.runId}`);
   emitAgentEvent({
     runId: ctx.params.runId,
+    sessionKey: ctx.params.sessionKey,
     stream: "lifecycle",
     data: {
       phase: "start",
@@ -66,6 +67,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
     });
     emitAgentEvent({
       runId: ctx.params.runId,
+      sessionKey: ctx.params.sessionKey,
       stream: "lifecycle",
       data: {
         phase: "error",
@@ -84,6 +86,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext) {
     ctx.log.debug(`embedded run agent end: runId=${ctx.params.runId} isError=${isError}`);
     emitAgentEvent({
       runId: ctx.params.runId,
+      sessionKey: ctx.params.sessionKey,
       stream: "lifecycle",
       data: {
         phase: "end",

@@ -189,13 +189,22 @@ export function resolveOutboundTarget(params: {
   accountId?: string | null;
   mode?: ChannelOutboundTargetMode;
 }): OutboundTargetResolution {
+  // Webchat was historically rejected here because it had no delivery plugin.
+  // Now that it has one, only reject when used from the CLI (no plugin available).
   if (params.channel === INTERNAL_MESSAGE_CHANNEL) {
-    return {
-      ok: false,
-      error: new Error(
-        `Delivering to WebChat is not supported via \`${formatCliCommand("openclaw agent")}\`; use WhatsApp/Telegram or run with --deliver=false.`,
-      ),
-    };
+    const webchatOutboundPlugin = resolveOutboundChannelPlugin({
+      channel: params.channel,
+      cfg: params.cfg,
+    });
+    if (!webchatOutboundPlugin?.outbound) {
+      return {
+        ok: false,
+        error: new Error(
+          `Delivering to WebChat is not supported via \`${formatCliCommand("openclaw agent")}\`; use WhatsApp/Telegram or run with --deliver=false.`,
+        ),
+      };
+    }
+    // Fall through to normal plugin-based resolution below.
   }
 
   const plugin = resolveOutboundChannelPlugin({

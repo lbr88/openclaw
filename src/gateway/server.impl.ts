@@ -6,6 +6,7 @@ import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
+import { registerWebchatBroadcast } from "../channels/webchat/index.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { createDefaultDeps } from "../cli/deps.js";
 import { isRestartEnabled } from "../config/commands.js";
@@ -744,6 +745,11 @@ export async function startGatewayServer(
   const hasMobileNodeConnected = () => hasConnectedMobileNode(nodeRegistry);
   applyGatewayLaneConcurrency(cfgAtStart);
 
+  // Register the gateway's broadcast function for webchat channel delivery.
+  // This enables heartbeats, cron results, and proactive messages to reach
+  // connected WebSocket clients (e.g. the Talkyn voice app).
+  const disposeWebchatBroadcast = registerWebchatBroadcast(broadcast);
+
   let cronState = buildGatewayCronService({
     cfg: cfgAtStart,
     deps,
@@ -1348,6 +1354,7 @@ export async function startGatewayServer(
       stopModelPricingRefresh();
       channelHealthMonitor?.stop();
       clearSecretsRuntimeSnapshot();
+      disposeWebchatBroadcast();
       await close(opts);
     },
   };

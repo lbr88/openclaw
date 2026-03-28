@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket, WebSocketServer } from "ws";
+import { setWebchatConnectedClients } from "../../channels/webchat/index.js";
 import { resolveCanvasHostUrl } from "../../infra/canvas-host-url.js";
 import { removeRemoteNodeInfo } from "../../infra/skills-remote.js";
 import { upsertPresence } from "../../infra/system-presence.js";
@@ -113,6 +114,11 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
     buildRequestContext,
   } = params;
   const originCheckMetrics: WsOriginCheckMetrics = { hostHeaderFallbackAccepted: 0 };
+  let webchatClientCount = 0;
+  const updateWebchatClientCount = (delta: number) => {
+    webchatClientCount = Math.max(0, webchatClientCount + delta);
+    setWebchatConnectedClients(webchatClientCount);
+  };
 
   wss.on("connection", (socket, upgradeReq) => {
     let client: GatewayWsClient | null = null;
@@ -188,6 +194,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       clearTimeout(handshakeTimer);
       if (client) {
         clients.delete(client);
+        if (isWebchatClient(client.connect.client)) {
+          updateWebchatClientCount(-1);
+        }
       }
       try {
         socket.close(code, reason);
@@ -315,6 +324,9 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       setClient: (next) => {
         client = next;
         clients.add(next);
+        if (isWebchatClient(next.connect.client)) {
+          updateWebchatClientCount(1);
+        }
       },
       setHandshakeState: (next) => {
         handshakeState = next;

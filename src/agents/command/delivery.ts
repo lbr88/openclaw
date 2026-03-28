@@ -94,12 +94,17 @@ export async function deliverAgentCommandResult(params: {
   });
   let deliveryChannel = deliveryPlan.resolvedChannel;
   const explicitChannelHint = (opts.replyChannel ?? opts.channel)?.trim();
+  // When the delivery channel is webchat, check if the webchat channel plugin
+  // is registered (gateway running). If not, try to resolve a real external channel.
   if (deliver && isInternalMessageChannel(deliveryChannel) && !explicitChannelHint) {
-    try {
-      const selection = await resolveMessageChannelSelection({ cfg });
-      deliveryChannel = selection.channel;
-    } catch {
-      // Keep the internal channel marker; error handling below reports the failure.
+    const webchatPlugin = getChannelPlugin(deliveryChannel);
+    if (!webchatPlugin?.outbound) {
+      try {
+        const selection = await resolveMessageChannelSelection({ cfg });
+        deliveryChannel = selection.channel;
+      } catch {
+        // Keep the internal channel marker; error handling below reports the failure.
+      }
     }
   }
   const effectiveDeliveryPlan =
@@ -110,12 +115,10 @@ export async function deliverAgentCommandResult(params: {
           resolvedChannel: deliveryChannel,
         };
   // Channel docking: delivery channels are resolved via plugin registry.
-  const deliveryPlugin = !isInternalMessageChannel(deliveryChannel)
-    ? getChannelPlugin(normalizeChannelId(deliveryChannel) ?? deliveryChannel)
-    : undefined;
+  // Include webchat when the webchat channel plugin is registered.
+  const deliveryPlugin = getChannelPlugin(normalizeChannelId(deliveryChannel) ?? deliveryChannel);
 
-  const isDeliveryChannelKnown =
-    isInternalMessageChannel(deliveryChannel) || Boolean(deliveryPlugin);
+  const isDeliveryChannelKnown = Boolean(deliveryPlugin);
 
   const targetMode =
     opts.deliveryTargetMode ??
@@ -151,7 +154,10 @@ export async function deliverAgentCommandResult(params: {
   };
 
   if (deliver) {
-    if (isInternalMessageChannel(deliveryChannel)) {
+    // Webchat is deliverable when the webchat channel plugin is registered (gateway running).
+    const isWebchatDeliverable =
+      isInternalMessageChannel(deliveryChannel) && Boolean(deliveryPlugin?.outbound);
+    if (isInternalMessageChannel(deliveryChannel) && !isWebchatDeliverable) {
       const err = new Error(
         "delivery channel is required: pass --channel/--reply-channel or use a main session with a previous channel",
       );
@@ -215,7 +221,11 @@ export async function deliverAgentCommandResult(params: {
       logPayload(payload);
     }
   }
-  if (deliver && deliveryChannel && !isInternalMessageChannel(deliveryChannel)) {
+  // Deliver to any known channel, including webchat when its plugin is active.
+  const canDeliverToChannel =
+    Boolean(deliveryChannel) &&
+    (!isInternalMessageChannel(deliveryChannel) || Boolean(deliveryPlugin?.outbound));
+  if (deliver && canDeliverToChannel) {
     if (deliveryTarget) {
       await deliverOutboundPayloads({
         cfg,

@@ -21,6 +21,23 @@ const EVENT_SCOPE_GUARDS: Record<string, string[]> = {
   "session.tool": [READ_SCOPE],
 };
 
+// ── dropIfSlow diagnostics ──
+// Track consecutive drops per connection and rate-limit warnings to avoid
+// flooding logs when a client is persistently slow.
+const DROP_WARN_INTERVAL_MS = 5_000;
+type DropIfSlowState = {
+  /** Running count of consecutive chat events dropped for this connection. */
+  consecutiveDrops: number;
+  /** Timestamp of last warning log for this connection. */
+  lastWarnAt: number;
+};
+const dropIfSlowStates = new Map<string, DropIfSlowState>();
+
+/** Clean up tracking state when a connection closes. */
+export function clearDropIfSlowState(connId: string): void {
+  dropIfSlowStates.delete(connId);
+}
+
 export type GatewayBroadcastStateVersion = {
   presence?: number;
   health?: number;
@@ -108,6 +125,24 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
       }
       const slow = c.socket.bufferedAmount > MAX_BUFFERED_BYTES;
       if (slow && opts?.dropIfSlow) {
+        // Track the drop and emit a rate-limited warning so operators can
+        // diagnose streaming issues caused by slow consumers.
+        const now = Date.now();
+        let state = dropIfSlowStates.get(c.connId);
+        if (!state) {
+          state = { consecutiveDrops: 0, lastWarnAt: 0 };
+          dropIfSlowStates.set(c.connId, state);
+        }
+        state.consecutiveDrops += 1;
+        if (now - state.lastWarnAt >= DROP_WARN_INTERVAL_MS) {
+          state.lastWarnAt = now;
+          logWs("out", "drop-slow", {
+            connId: c.connId,
+            event,
+            bufferedMB: Math.round(c.socket.bufferedAmount / (1024 * 1024)),
+            consecutiveDrops: state.consecutiveDrops,
+          });
+        }
         continue;
       }
       if (slow) {
@@ -117,6 +152,11 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
           /* ignore */
         }
         continue;
+      }
+      // Reset drop counter on successful send
+      const existingState = dropIfSlowStates.get(c.connId);
+      if (existingState && existingState.consecutiveDrops > 0) {
+        existingState.consecutiveDrops = 0;
       }
       try {
         c.socket.send(frame);

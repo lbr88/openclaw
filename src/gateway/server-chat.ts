@@ -571,6 +571,7 @@ export function createAgentEventHandler({
     clientRunId: string,
     sourceRunId: string,
     seq: number,
+    opts?: { dropIfSlow?: boolean },
   ) => {
     const { text, shouldSuppressSilent } = resolveBufferedChatTextState(clientRunId, sourceRunId);
     const shouldSuppressSilentLeadFragment = isSilentReplyLeadFragment(text);
@@ -604,7 +605,7 @@ export function createAgentEventHandler({
         timestamp: now,
       },
     };
-    broadcast("chat", flushPayload, { dropIfSlow: true });
+    broadcast("chat", flushPayload, opts?.dropIfSlow ? { dropIfSlow: true } : undefined);
     nodeSendToSession(sessionKey, "chat", flushPayload);
     chatRunState.deltaLastBroadcastLen.set(clientRunId, text.length);
     chatRunState.deltaSentAt.set(clientRunId, now);
@@ -729,7 +730,9 @@ export function createAgentEventHandler({
       // Flush pending assistant text before tool-start events so clients can
       // render complete pre-tool text above tool cards (not truncated by delta throttle).
       if (toolPhase === "start" && isControlUiVisible && sessionKey && !isAborted) {
-        flushBufferedChatDeltaIfNeeded(sessionKey, clientRunId, evt.runId, evt.seq);
+        flushBufferedChatDeltaIfNeeded(sessionKey, clientRunId, evt.runId, evt.seq, {
+          dropIfSlow: true,
+        });
       }
       // Always broadcast tool events to registered WS recipients with
       // tool-events capability, regardless of verboseLevel. The verbose

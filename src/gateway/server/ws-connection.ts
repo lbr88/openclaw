@@ -10,6 +10,7 @@ import { isWebchatClient } from "../../utils/message-channel.js";
 import type { AuthRateLimiter } from "../auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import { isLoopbackAddress } from "../net.js";
+import { clearDropIfSlowState } from "../server-broadcast.js";
 import { getHandshakeTimeoutMs } from "../server-constants.js";
 import { cleanupFileUploadManager } from "../server-methods/file-upload.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
@@ -264,6 +265,8 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
       // Clean up any in-progress file uploads for this connection.
       cleanupFileUploadManager(connId);
+      // Clean up dropIfSlow diagnostics state for this connection.
+      clearDropIfSlowState(connId);
       // Clean up any in-progress voice turns owned by this connection.
       const clearedVoiceTurns = clearVoiceTurnsByConnId(connId);
       if (clearedVoiceTurns.length > 0) {

@@ -1011,4 +1011,126 @@ describe("agent event handler", () => {
       "Disk usage crossed 95 percent on /data and needs cleanup now.",
     );
   });
+
+  it("pre-final flush does NOT use dropIfSlow so slow consumers get complete text", () => {
+    let now = 20_000;
+    const { broadcast, chatRunState, handler, nowSpy } = createHarness({
+      now,
+      resolveSessionKeyForRun: () => "session-slow",
+    });
+
+    chatRunState.registry.add("run-slow", {
+      sessionKey: "session-slow",
+      clientRunId: "client-slow",
+    });
+    registerAgentRunContext("run-slow", { sessionKey: "session-slow" });
+
+    // First delta — passes 150ms throttle (last = 0)
+    handler({
+      runId: "run-slow",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Hello" },
+    });
+
+    const chatCallsAfterDelta = chatBroadcastCalls(broadcast);
+    expect(chatCallsAfterDelta).toHaveLength(1);
+    // Regular delta uses dropIfSlow
+    expect(chatCallsAfterDelta[0]?.[2]).toEqual({ dropIfSlow: true });
+
+    // Throttled update (within 150ms)
+    now = 20_050;
+    nowSpy?.mockReturnValue(now);
+    handler({
+      runId: "run-slow",
+      seq: 2,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Hello world complete response" },
+    });
+
+    // Should still be 1 chat call (throttled)
+    expect(chatBroadcastCalls(broadcast)).toHaveLength(1);
+
+    // Now lifecycle:end fires — triggers pre-final flush + final
+    now = 20_200;
+    nowSpy?.mockReturnValue(now);
+    emitLifecycleEnd(handler, "run-slow", 3);
+
+    const allChatCalls = chatBroadcastCalls(broadcast);
+    // Expect 3 calls: initial delta, pre-final flush, final
+    expect(allChatCalls).toHaveLength(3);
+
+    // Pre-final flush (second call) must NOT have dropIfSlow
+    const flushCall = allChatCalls[1];
+    expect(flushCall?.[2]).toBeUndefined(); // no opts = no dropIfSlow
+
+    // The flush payload should contain the complete buffered text
+    const flushPayload = flushCall?.[1] as {
+      state?: string;
+      message?: { content?: Array<{ text?: string }> };
+    };
+    expect(flushPayload.state).toBe("delta");
+    expect(flushPayload.message?.content?.[0]?.text).toBe("Hello world complete response");
+
+    // Final (third call) should also not have dropIfSlow
+    const finalCall = allChatCalls[2];
+    expect(finalCall?.[2]).toBeUndefined();
+
+    nowSpy?.mockRestore();
+    resetAgentRunContextForTest();
+  });
+
+  it("tool-start flush still uses dropIfSlow", () => {
+    let now = 30_000;
+    const { broadcast, chatRunState, handler, nowSpy, toolEventRecipients } = createHarness({
+      now,
+      resolveSessionKeyForRun: () => "session-tool-drop",
+    });
+
+    chatRunState.registry.add("run-tool-drop", {
+      sessionKey: "session-tool-drop",
+      clientRunId: "client-tool-drop",
+    });
+    registerAgentRunContext("run-tool-drop", { sessionKey: "session-tool-drop" });
+    toolEventRecipients.add("run-tool-drop", "conn-1");
+
+    // First delta
+    handler({
+      runId: "run-tool-drop",
+      seq: 1,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Thinking..." },
+    });
+
+    // Throttled update
+    now = 30_050;
+    nowSpy?.mockReturnValue(now);
+    handler({
+      runId: "run-tool-drop",
+      seq: 2,
+      stream: "assistant",
+      ts: Date.now(),
+      data: { text: "Thinking... let me check" },
+    });
+
+    // Tool start triggers flush
+    handler({
+      runId: "run-tool-drop",
+      seq: 3,
+      stream: "tool",
+      ts: Date.now(),
+      data: { phase: "start", name: "read", toolCallId: "t-drop-1" },
+    });
+
+    const chatCalls = chatBroadcastCalls(broadcast);
+    expect(chatCalls).toHaveLength(2);
+    // Tool-start flush should still use dropIfSlow
+    expect(chatCalls[1]?.[2]).toEqual({ dropIfSlow: true });
+
+    nowSpy?.mockRestore();
+    resetAgentRunContextForTest();
+  });
 });

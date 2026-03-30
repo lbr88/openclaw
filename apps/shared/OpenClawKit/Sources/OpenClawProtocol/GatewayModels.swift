@@ -79,6 +79,7 @@ public struct HelloOk: Codable, Sendable {
     public let _protocol: Int
     public let server: [String: AnyCodable]
     public let features: [String: AnyCodable]
+    public let caps: [String]?
     public let snapshot: Snapshot
     public let canvashosturl: String?
     public let auth: [String: AnyCodable]?
@@ -89,6 +90,7 @@ public struct HelloOk: Codable, Sendable {
         _protocol: Int,
         server: [String: AnyCodable],
         features: [String: AnyCodable],
+        caps: [String]?,
         snapshot: Snapshot,
         canvashosturl: String?,
         auth: [String: AnyCodable]?,
@@ -98,6 +100,7 @@ public struct HelloOk: Codable, Sendable {
         self._protocol = _protocol
         self.server = server
         self.features = features
+        self.caps = caps
         self.snapshot = snapshot
         self.canvashosturl = canvashosturl
         self.auth = auth
@@ -109,6 +112,7 @@ public struct HelloOk: Codable, Sendable {
         case _protocol = "protocol"
         case server
         case features
+        case caps
         case snapshot
         case canvashosturl = "canvasHostUrl"
         case auth
@@ -3704,6 +3708,76 @@ public struct ChatEvent: Codable, Sendable {
     }
 }
 
+public struct FileChunkParams: Codable, Sendable {
+    public let uploadid: String
+    public let chunkindex: Int
+    public let totalchunks: Int
+    public let data: String
+
+    public init(
+        uploadid: String,
+        chunkindex: Int,
+        totalchunks: Int,
+        data: String)
+    {
+        self.uploadid = uploadid
+        self.chunkindex = chunkindex
+        self.totalchunks = totalchunks
+        self.data = data
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case chunkindex = "chunkIndex"
+        case totalchunks = "totalChunks"
+        case data
+    }
+}
+
+public struct FileCompleteParams: Codable, Sendable {
+    public let uploadid: String
+    public let filename: String
+    public let mimetype: String
+    public let totalsize: Int
+    public let sessionkey: String?
+
+    public init(
+        uploadid: String,
+        filename: String,
+        mimetype: String,
+        totalsize: Int,
+        sessionkey: String?)
+    {
+        self.uploadid = uploadid
+        self.filename = filename
+        self.mimetype = mimetype
+        self.totalsize = totalsize
+        self.sessionkey = sessionkey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case filename
+        case mimetype = "mimeType"
+        case totalsize = "totalSize"
+        case sessionkey = "sessionKey"
+    }
+}
+
+public struct FileCancelParams: Codable, Sendable {
+    public let uploadid: String
+
+    public init(
+        uploadid: String)
+    {
+        self.uploadid = uploadid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+    }
+}
+
 public struct UpdateRunParams: Codable, Sendable {
     public let sessionkey: String?
     public let note: String?
@@ -3727,6 +3801,128 @@ public struct UpdateRunParams: Codable, Sendable {
         case note
         case restartdelayms = "restartDelayMs"
         case timeoutms = "timeoutMs"
+    }
+}
+
+public struct ChatTurnStartParams: Codable, Sendable {
+    public let sessionkey: String
+    public let turnid: String
+
+    public init(
+        sessionkey: String,
+        turnid: String)
+    {
+        self.sessionkey = sessionkey
+        self.turnid = turnid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case turnid = "turnId"
+    }
+}
+
+public struct ChatTurnAppendParams: Codable, Sendable {
+    public let sessionkey: String
+    public let turnid: String
+    public let text: String
+    public let segmentindex: Int
+
+    public init(
+        sessionkey: String,
+        turnid: String,
+        text: String,
+        segmentindex: Int)
+    {
+        self.sessionkey = sessionkey
+        self.turnid = turnid
+        self.text = text
+        self.segmentindex = segmentindex
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case turnid = "turnId"
+        case text
+        case segmentindex = "segmentIndex"
+    }
+}
+
+public struct ChatTurnUpdateParams: Codable, Sendable {
+    public let sessionkey: String
+    public let turnid: String
+    public let kind: AnyCodable
+    public let ts: Int
+
+    public init(
+        sessionkey: String,
+        turnid: String,
+        kind: AnyCodable,
+        ts: Int)
+    {
+        self.sessionkey = sessionkey
+        self.turnid = turnid
+        self.kind = kind
+        self.ts = ts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case turnid = "turnId"
+        case kind
+        case ts
+    }
+}
+
+public struct ChatTurnCommitParams: Codable, Sendable {
+    public let sessionkey: String
+    public let turnid: String
+    public let fulltext: String
+    public let segmentcount: Int
+    public let commitreason: String
+
+    public init(
+        sessionkey: String,
+        turnid: String,
+        fulltext: String,
+        segmentcount: Int,
+        commitreason: String)
+    {
+        self.sessionkey = sessionkey
+        self.turnid = turnid
+        self.fulltext = fulltext
+        self.segmentcount = segmentcount
+        self.commitreason = commitreason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case turnid = "turnId"
+        case fulltext = "fullText"
+        case segmentcount = "segmentCount"
+        case commitreason = "commitReason"
+    }
+}
+
+public struct ChatTurnCancelParams: Codable, Sendable {
+    public let sessionkey: String
+    public let turnid: String
+    public let reason: String
+
+    public init(
+        sessionkey: String,
+        turnid: String,
+        reason: String)
+    {
+        self.sessionkey = sessionkey
+        self.turnid = turnid
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case turnid = "turnId"
+        case reason
     }
 }
 

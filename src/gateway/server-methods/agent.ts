@@ -593,8 +593,23 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     const isWebchatDeliverable = () =>
       Boolean(getChannelPlugin(INTERNAL_MESSAGE_CHANNEL)?.outbound);
+    const hasConcreteWebchatDeliveryHint = [
+      request.replyChannel,
+      request.channel,
+      sessionEntry?.deliveryContext?.channel,
+      sessionEntry?.lastChannel,
+      sessionEntry?.channel,
+      deliveryPlan.baseDelivery.channel,
+      deliveryPlan.baseDelivery.lastChannel,
+    ].some((value) => normalizeMessageChannel(value) === INTERNAL_MESSAGE_CHANNEL);
+    const canDeliverResolvedWebchat = () =>
+      isWebchatDeliverable() && hasConcreteWebchatDeliveryHint;
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !isWebchatDeliverable()) {
+    if (
+      wantsDelivery &&
+      resolvedChannel === INTERNAL_MESSAGE_CHANNEL &&
+      !canDeliverResolvedWebchat()
+    ) {
       const cfgResolved = cfgForAgent ?? cfg;
       try {
         const selection = await resolveMessageChannelSelection({ cfg: cfgResolved });
@@ -625,7 +640,11 @@ export const agentHandlers: GatewayRequestHandlers = {
       }
     }
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !isWebchatDeliverable()) {
+    if (
+      wantsDelivery &&
+      resolvedChannel === INTERNAL_MESSAGE_CHANNEL &&
+      !canDeliverResolvedWebchat()
+    ) {
       respond(
         false,
         undefined,
@@ -650,7 +669,7 @@ export const agentHandlers: GatewayRequestHandlers = {
 
     const deliver =
       request.deliver === true &&
-      (resolvedChannel !== INTERNAL_MESSAGE_CHANNEL || isWebchatDeliverable());
+      (resolvedChannel !== INTERNAL_MESSAGE_CHANNEL || canDeliverResolvedWebchat());
 
     const accepted = {
       runId,

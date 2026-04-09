@@ -806,6 +806,41 @@ describe("gateway agent handler", () => {
     expect(respond.mock.calls[0]?.[0]).toBe(true);
   });
 
+  it("still resolves an external delivery channel when webchat is registered but no webchat route was requested", async () => {
+    mockMainSessionEntry({
+      sessionId: "existing-session-id",
+    });
+    mocks.resolveMessageChannelSelection.mockResolvedValue({ channel: "telegram" });
+    mocks.getChannelPlugin.mockImplementation((id: string) =>
+      id === "webchat" ? ({ outbound: {} } as { outbound: object }) : undefined,
+    );
+    mocks.agentCommand.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 100 },
+    });
+
+    await invokeAgent(
+      {
+        message: "unresolved delivery should not broadcast to webchat",
+        sessionKey: "agent:main:main",
+        deliver: true,
+        idempotencyKey: "test-unresolved-delivery-selects-external-channel",
+      },
+      {
+        reqId: "unresolved-delivery-1",
+      },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    expect(mocks.resolveMessageChannelSelection).toHaveBeenCalledTimes(1);
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      deliver?: boolean;
+    };
+    expect(callArgs.channel).toBe("telegram");
+    expect(callArgs.deliver).toBe(true);
+  });
+
   it("handles missing cliSessionIds gracefully", async () => {
     mockMainSessionEntry({});
 

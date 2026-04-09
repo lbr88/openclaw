@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliDeps } from "../cli/deps.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SessionEntry } from "../config/sessions.js";
+import { setActivePluginRegistry } from "../plugins/runtime.js";
 import type { RuntimeEnv } from "../runtime.js";
+import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
 
 const mocks = vi.hoisted(() => ({
   deliverOutboundPayloads: vi.fn(async () => []),
-  getChannelPlugin: vi.fn(() => ({})),
-  resolveOutboundTarget: vi.fn(() => ({ ok: true as const, to: "+15551234567" })),
+  getChannelPlugin: vi.fn((_channel?: string) => ({})),
+  resolveOutboundTarget: vi.fn((params?: { channel?: string; to?: string }) => ({
+    ok: true as const,
+    to: params?.channel === "webchat" ? params?.to?.trim() || "webchat" : "+15551234567",
+  })),
 }));
 
 vi.mock("../channels/plugins/index.js", () => ({
@@ -73,8 +78,22 @@ describe("deliverAgentCommandResult", () => {
   }
 
   beforeEach(() => {
+    setActivePluginRegistry(createTestRegistry([]));
     mocks.deliverOutboundPayloads.mockClear();
-    mocks.resolveOutboundTarget.mockClear();
+    mocks.resolveOutboundTarget.mockReset();
+    mocks.resolveOutboundTarget.mockImplementation(
+      (params?: { channel?: string; to?: string }) => ({
+        ok: true as const,
+        to:
+          params?.channel === "webchat"
+            ? typeof params.to === "string" && params.to.trim()
+              ? params.to.trim()
+              : "webchat"
+            : "+15551234567",
+      }),
+    );
+    mocks.getChannelPlugin.mockReset();
+    mocks.getChannelPlugin.mockImplementation(() => ({}));
   });
 
   it("prefers explicit accountId for outbound delivery", async () => {
@@ -257,6 +276,45 @@ describe("deliverAgentCommandResult", () => {
           agentId: "exec",
         }),
       }),
+    );
+  });
+
+  it("delivers proactive webchat payloads without an explicit target when the webchat plugin is active", async () => {
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "webchat",
+          plugin: createOutboundTestPlugin({
+            id: "webchat",
+            outbound: {
+              deliveryMode: "direct",
+              resolveTarget: ({ to }) => ({ ok: true, to: to?.trim() || "webchat" }),
+            },
+          }),
+          source: "test",
+        },
+      ]),
+    );
+    mocks.getChannelPlugin.mockImplementation((channel: string) =>
+      channel === "webchat" ? ({ outbound: {} } as { outbound: object }) : ({} as object),
+    );
+
+    await runDelivery({
+      opts: {
+        message: "hello",
+        deliver: true,
+        channel: "webchat",
+      },
+      sessionEntry: {
+        channel: "webchat",
+      } as SessionEntry,
+    });
+
+    expect(mocks.resolveOutboundTarget).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "webchat", to: undefined }),
+    );
+    expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "webchat", to: "webchat" }),
     );
   });
 

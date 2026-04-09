@@ -6,6 +6,7 @@ import {
   resolveIngressWorkspaceOverrideForSpawnedRun,
 } from "../../agents/spawned-context.js";
 import { buildBareSessionResetPrompt } from "../../auto-reply/reply/session-reset-prompt.js";
+import { getChannelPlugin } from "../../channels/plugins/registry.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { loadConfig } from "../../config/config.js";
 import {
@@ -590,7 +591,10 @@ export const agentHandlers: GatewayRequestHandlers = {
     let resolvedTo = deliveryPlan.resolvedTo;
     let effectivePlan = deliveryPlan;
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    const isWebchatDeliverable = () =>
+      Boolean(getChannelPlugin(INTERNAL_MESSAGE_CHANNEL)?.outbound);
+
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !isWebchatDeliverable()) {
       const cfgResolved = cfgForAgent ?? cfg;
       try {
         const selection = await resolveMessageChannelSelection({ cfg: cfgResolved });
@@ -621,7 +625,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       }
     }
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !isWebchatDeliverable()) {
       respond(
         false,
         undefined,
@@ -644,7 +648,9 @@ export const agentHandlers: GatewayRequestHandlers = {
         ? INTERNAL_MESSAGE_CHANNEL
         : resolvedChannel);
 
-    const deliver = request.deliver === true && resolvedChannel !== INTERNAL_MESSAGE_CHANNEL;
+    const deliver =
+      request.deliver === true &&
+      (resolvedChannel !== INTERNAL_MESSAGE_CHANNEL || isWebchatDeliverable());
 
     const accepted = {
       runId,

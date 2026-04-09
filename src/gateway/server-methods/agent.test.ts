@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   performGatewaySessionReset: vi.fn(),
   getSubagentRunByChildSessionKey: vi.fn(),
   replaceSubagentRunAfterSteer: vi.fn(),
+  resolveMessageChannelSelection: vi.fn(),
+  getChannelPlugin: vi.fn(),
   loadConfigReturn: {} as Record<string, unknown>,
 }));
 
@@ -65,6 +67,26 @@ vi.mock("../../infra/agent-events.js", () => ({
   registerAgentRunContext: mocks.registerAgentRunContext,
   onAgentEvent: vi.fn(),
 }));
+
+vi.mock("../../infra/outbound/channel-selection.js", async () => {
+  const actual = await vi.importActual<typeof import("../../infra/outbound/channel-selection.js")>(
+    "../../infra/outbound/channel-selection.js",
+  );
+  return {
+    ...actual,
+    resolveMessageChannelSelection: mocks.resolveMessageChannelSelection,
+  };
+});
+
+vi.mock("../../channels/plugins/registry.js", async () => {
+  const actual = await vi.importActual<typeof import("../../channels/plugins/registry.js")>(
+    "../../channels/plugins/registry.js",
+  );
+  return {
+    ...actual,
+    getChannelPlugin: mocks.getChannelPlugin,
+  };
+});
 
 vi.mock("../../agents/subagent-registry.js", () => ({
   getSubagentRunByChildSessionKey: mocks.getSubagentRunByChildSessionKey,
@@ -735,6 +757,88 @@ describe("gateway agent handler", () => {
     expect(callArgs.channel).toBe("telegram");
     expect(callArgs.messageChannel).toBe("webchat");
     expect(callArgs.runContext?.messageChannel).toBe("webchat");
+  });
+
+  it("accepts webchat proactive delivery when the webchat plugin is registered", async () => {
+    mockMainSessionEntry({
+      sessionId: "existing-session-id",
+      channel: "webchat",
+      accountId: "default",
+      origin: { provider: "webchat", surface: "webchat", chatType: "direct" },
+    });
+    mocks.resolveMessageChannelSelection.mockRejectedValue(
+      new Error("Channel is required (no configured channels detected)"),
+    );
+    mocks.getChannelPlugin.mockImplementation((id: string) =>
+      id === "webchat" ? ({ outbound: {} } as { outbound: object }) : undefined,
+    );
+    mocks.agentCommand.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 100 },
+    });
+
+    const respond = vi.fn();
+    await invokeAgent(
+      {
+        message: "proactive webchat delivery",
+        sessionKey: "agent:main:main",
+        channel: "webchat",
+        accountId: "default",
+        deliver: true,
+        idempotencyKey: "test-webchat-proactive-delivery",
+      },
+      {
+        respond,
+        reqId: "webchat-proactive-1",
+      },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    expect(mocks.resolveMessageChannelSelection).not.toHaveBeenCalled();
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      accountId?: string;
+      deliver?: boolean;
+    };
+    expect(callArgs.channel).toBe("webchat");
+    expect(callArgs.accountId).toBe("default");
+    expect(callArgs.deliver).toBe(true);
+    expect(respond.mock.calls[0]?.[0]).toBe(true);
+  });
+
+  it("still resolves an external delivery channel when webchat is registered but no webchat route was requested", async () => {
+    mockMainSessionEntry({
+      sessionId: "existing-session-id",
+    });
+    mocks.resolveMessageChannelSelection.mockResolvedValue({ channel: "telegram" });
+    mocks.getChannelPlugin.mockImplementation((id: string) =>
+      id === "webchat" ? ({ outbound: {} } as { outbound: object }) : undefined,
+    );
+    mocks.agentCommand.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 100 },
+    });
+
+    await invokeAgent(
+      {
+        message: "unresolved delivery should not broadcast to webchat",
+        sessionKey: "agent:main:main",
+        deliver: true,
+        idempotencyKey: "test-unresolved-delivery-selects-external-channel",
+      },
+      {
+        reqId: "unresolved-delivery-1",
+      },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    expect(mocks.resolveMessageChannelSelection).toHaveBeenCalledTimes(1);
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      deliver?: boolean;
+    };
+    expect(callArgs.channel).toBe("telegram");
+    expect(callArgs.deliver).toBe(true);
   });
 
   it("handles missing cliSessionIds gracefully", async () => {

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   performGatewaySessionReset: vi.fn(),
   getSubagentRunByChildSessionKey: vi.fn(),
   replaceSubagentRunAfterSteer: vi.fn(),
+  getChannelPlugin: vi.fn(),
   loadConfigReturn: {} as Record<string, unknown>,
 }));
 
@@ -60,6 +61,19 @@ vi.mock("../../config/config.js", async () => {
 vi.mock("../../agents/agent-scope.js", () => ({
   listAgentIds: () => ["main"],
 }));
+
+vi.mock("../../channels/plugins/registry.js", async () => {
+  const actual = await vi.importActual<typeof import("../../channels/plugins/registry.js")>(
+    "../../channels/plugins/registry.js",
+  );
+  return {
+    ...actual,
+    getChannelPlugin: (id: string) => {
+      const mocked = mocks.getChannelPlugin(id);
+      return mocked === undefined ? actual.getChannelPlugin(id as never) : mocked;
+    },
+  };
+});
 
 vi.mock("../../infra/agent-events.js", () => ({
   registerAgentRunContext: mocks.registerAgentRunContext,
@@ -155,6 +169,17 @@ function buildExistingMainStoreEntry(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+const webchatOutboundTestPlugin = {
+  id: "webchat",
+  outbound: {
+    deliveryMode: "direct",
+    resolveTarget: ({ to }: { to?: string }) => ({
+      ok: true as const,
+      to: to?.trim() || "webchat",
+    }),
+  },
+};
 
 async function runMainAgentAndCaptureEntry(idempotencyKey: string) {
   const getCapturedEntry = captureUpdatedMainEntry();
@@ -631,6 +656,73 @@ describe("gateway agent handler", () => {
     await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
     const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(callArgs.bestEffortDeliver).toBe(false);
+  });
+
+  it("allows explicit webchat replyChannel delivery without an explicit target", async () => {
+    primeMainAgentRun();
+    mocks.agentCommand.mockClear();
+    mocks.getChannelPlugin.mockImplementation((id: string) =>
+      id === "webchat" ? webchatOutboundTestPlugin : undefined,
+    );
+
+    await invokeAgent(
+      {
+        message: "deliver to webchat",
+        sessionKey: "agent:main:main",
+        deliver: true,
+        replyChannel: "webchat",
+        idempotencyKey: "test-webchat-delivery-explicit",
+      },
+      { reqId: "webchat-delivery-explicit-1" },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      deliver?: boolean;
+    };
+    expect(callArgs.channel).toBe("webchat");
+    expect(callArgs.deliver).toBe(true);
+  });
+
+  it("keeps implicit main-session delivery on webchat when that is the stored last channel", async () => {
+    mocks.getChannelPlugin.mockImplementation((id: string) =>
+      id === "webchat" ? webchatOutboundTestPlugin : undefined,
+    );
+    mockMainSessionEntry({
+      sessionId: "existing-session-id",
+      lastChannel: "webchat",
+    });
+    mocks.updateSessionStore.mockImplementation(async (_path, updater) => {
+      const store: Record<string, unknown> = {
+        "agent:main:main": buildExistingMainStoreEntry({
+          lastChannel: "webchat",
+        }),
+      };
+      return await updater(store);
+    });
+    mocks.agentCommand.mockResolvedValue({
+      payloads: [{ text: "ok" }],
+      meta: { durationMs: 100 },
+    });
+
+    await invokeAgent(
+      {
+        message: "announce back to webchat",
+        sessionKey: "agent:main:main",
+        deliver: true,
+        idempotencyKey: "test-webchat-delivery-implicit",
+      },
+      { reqId: "webchat-delivery-implicit-1" },
+    );
+
+    await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalled());
+    const callArgs = mocks.agentCommand.mock.calls.at(-1)?.[0] as {
+      channel?: string;
+      deliver?: boolean;
+    };
+    expect(callArgs.channel).toBe("webchat");
+    expect(callArgs.deliver).toBe(true);
   });
 
   it("rejects public spawned-run metadata fields", async () => {

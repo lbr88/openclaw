@@ -6,6 +6,7 @@ import {
   resolveIngressWorkspaceOverrideForSpawnedRun,
 } from "../../agents/spawned-context.js";
 import { buildBareSessionResetPrompt } from "../../auto-reply/reply/session-reset-prompt.js";
+import { getChannelPlugin } from "../../channels/plugins/registry.js";
 import { agentCommandFromIngress } from "../../commands/agent.js";
 import { loadConfig } from "../../config/config.js";
 import {
@@ -78,6 +79,13 @@ function resolveAllowModelOverrideFromClient(
   client: GatewayRequestHandlerOptions["client"],
 ): boolean {
   return resolveSenderIsOwnerFromClient(client) || client?.internal?.allowModelOverride === true;
+}
+
+function canDeliverGatewayInternalChannel(channel?: string | null): boolean {
+  return (
+    normalizeMessageChannel(channel) === INTERNAL_MESSAGE_CHANNEL &&
+    Boolean(getChannelPlugin(INTERNAL_MESSAGE_CHANNEL)?.outbound)
+  );
 }
 
 async function runSessionResetFromAgent(params: {
@@ -590,7 +598,8 @@ export const agentHandlers: GatewayRequestHandlers = {
     let resolvedTo = deliveryPlan.resolvedTo;
     let effectivePlan = deliveryPlan;
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    let canDeliverInternally = canDeliverGatewayInternalChannel(resolvedChannel);
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !canDeliverInternally) {
       const cfgResolved = cfgForAgent ?? cfg;
       try {
         const selection = await resolveMessageChannelSelection({ cfg: cfgResolved });
@@ -606,9 +615,10 @@ export const agentHandlers: GatewayRequestHandlers = {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
       }
+      canDeliverInternally = canDeliverGatewayInternalChannel(resolvedChannel);
     }
 
-    if (!resolvedTo && isDeliverableMessageChannel(resolvedChannel)) {
+    if (!resolvedTo && (isDeliverableMessageChannel(resolvedChannel) || canDeliverInternally)) {
       const cfgResolved = cfgForAgent ?? cfg;
       const fallback = resolveAgentOutboundTarget({
         cfg: cfgResolved,
@@ -621,7 +631,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       }
     }
 
-    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL) {
+    if (wantsDelivery && resolvedChannel === INTERNAL_MESSAGE_CHANNEL && !canDeliverInternally) {
       respond(
         false,
         undefined,
@@ -644,7 +654,9 @@ export const agentHandlers: GatewayRequestHandlers = {
         ? INTERNAL_MESSAGE_CHANNEL
         : resolvedChannel);
 
-    const deliver = request.deliver === true && resolvedChannel !== INTERNAL_MESSAGE_CHANNEL;
+    const deliver =
+      request.deliver === true &&
+      (resolvedChannel !== INTERNAL_MESSAGE_CHANNEL || canDeliverInternally);
 
     const accepted = {
       runId,

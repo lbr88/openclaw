@@ -255,7 +255,7 @@ export function buildAgentSystemPrompt(params: {
       : "Spawn an isolated sub-agent session",
     subagents: "List, steer, or kill sub-agent runs for this requester session",
     session_status:
-      "Show a /status-equivalent status card (usage + time + Reasoning/Verbose/Elevated); use for model-use questions (📊 session_status); optional per-session model override",
+      "Show a /status-equivalent status card (usage + time + Reasoning/Verbose/Elevated); use for model-use questions (📊 session_status); optional per-session model, thinking, and reasoning overrides",
     image: "Analyze an image with the configured image model",
     image_generate: "Generate images with the configured image-generation model",
   };

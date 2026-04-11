@@ -11,6 +11,7 @@ import {
   updateSessionStore,
 } from "../../config/sessions.js";
 import { loadCombinedSessionStoreForGateway } from "../../gateway/session-utils.js";
+import { applySessionsPatchToStore } from "../../gateway/sessions-patch.js";
 import {
   formatUsageWindowSummary,
   loadProviderUsageSummary,
@@ -49,6 +50,8 @@ import {
 const SessionStatusToolSchema = Type.Object({
   sessionKey: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()),
+  thinking: Type.Optional(Type.String()),
+  reasoning: Type.Optional(Type.String()),
 });
 
 function resolveSessionEntry(params: {
@@ -182,7 +185,7 @@ export function createSessionStatusTool(opts?: {
     label: "Session Status",
     name: "session_status",
     description:
-      "Show a /status-equivalent session status card (usage + time + cost when available). Use for model-use questions (📊 session_status). Optional: set per-session model override (model=default resets overrides).",
+      "Show a /status-equivalent session status card (usage + time + cost when available). Use for model-use questions (📊 session_status). Optional: set per-session model override (model=default resets overrides), thinking level, and reasoning level.",
     parameters: SessionStatusToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -330,7 +333,11 @@ export function createSessionStatusTool(opts?: {
 
       const configured = resolveDefaultModelForAgent({ cfg, agentId });
       const modelRaw = readStringParam(params, "model");
+      const thinkingRaw = readStringParam(params, "thinking");
+      const reasoningRaw = readStringParam(params, "reasoning");
       let changedModel = false;
+      let changedThinking = false;
+      let changedReasoning = false;
       if (typeof modelRaw === "string") {
         const selection = await resolveModelOverride({
           cfg,
@@ -362,6 +369,41 @@ export function createSessionStatusTool(opts?: {
           resolved.entry = nextEntry;
           changedModel = true;
         }
+      }
+
+      if (typeof thinkingRaw === "string" || typeof reasoningRaw === "string") {
+        const previousEntry = { ...resolved.entry };
+        const patch: {
+          key: string;
+          thinkingLevel?: string;
+          reasoningLevel?: string;
+        } = {
+          key: resolved.key,
+        };
+        if (typeof thinkingRaw === "string") {
+          patch.thinkingLevel = thinkingRaw;
+        }
+        if (typeof reasoningRaw === "string") {
+          patch.reasoningLevel = reasoningRaw;
+        }
+        const patchResult = await applySessionsPatchToStore({
+          cfg,
+          store,
+          storeKey: resolved.key,
+          patch,
+          loadGatewayModelCatalog: async () => await loadModelCatalog({ config: cfg }),
+        });
+        if (!patchResult.ok) {
+          throw new Error(patchResult.error.message);
+        }
+        const nextEntry = patchResult.entry;
+        store[resolved.key] = nextEntry;
+        await updateSessionStore(storePath, (nextStore) => {
+          nextStore[resolved.key] = nextEntry;
+        });
+        resolved.entry = nextEntry;
+        changedThinking = previousEntry.thinkingLevel !== nextEntry.thinkingLevel;
+        changedReasoning = previousEntry.reasoningLevel !== nextEntry.reasoningLevel;
       }
 
       const agentDir = resolveAgentDir(cfg, agentId);
@@ -460,6 +502,8 @@ export function createSessionStatusTool(opts?: {
           ok: true,
           sessionKey: resolved.key,
           changedModel,
+          changedThinking,
+          changedReasoning,
           statusText,
         },
       };

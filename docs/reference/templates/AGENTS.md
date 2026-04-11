@@ -160,6 +160,28 @@ You are free to edit `HEARTBEAT.md` with a short checklist or reminders. Keep it
 
 **Tip:** Batch similar periodic checks into `HEARTBEAT.md` instead of creating multiple cron jobs. Use cron for precise schedules and standalone tasks.
 
+### Workflow Control Loops for Long-Running Work
+
+For long-running multi-step work that should keep moving without constant babysitting, keep a small `workflow-control-loop.md` (or similar note) with at least:
+
+- workstream / owner
+- `current_phase`
+- `expected_next_phase`
+- blocker / no blocker
+- last verified evidence
+- last intervention result
+
+Treat these as **evidence only**, not valid resting states:
+
+- PR opened / PR URL posted
+- CI green
+- announce/completion event
+- tool timeout / tool error
+
+Heartbeats/follow-up helpers should check **missing transitions**, not vague "activity." If a tool times out while nudging another session, treat the intervention as **unverified** until the downstream state is actually checked.
+
+See the example template at `/reference/templates/workflow-control-loop`.
+
 **Things to check (rotate through these, 2-4 times per day):**
 
 - **Emails** - Any urgent unread messages?

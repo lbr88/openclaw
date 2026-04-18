@@ -8,12 +8,24 @@ import {
 } from "./tool-mutation.js";
 
 describe("tool mutation helpers", () => {
-  it("treats session_status as mutating only when model override is provided", () => {
+  it("treats session_status as mutating only when an override is provided", () => {
     expect(isMutatingToolCall("session_status", { sessionKey: "agent:main:main" })).toBe(false);
     expect(
       isMutatingToolCall("session_status", {
         sessionKey: "agent:main:main",
         model: "openai/gpt-4o",
+      }),
+    ).toBe(true);
+    expect(
+      isMutatingToolCall("session_status", {
+        sessionKey: "agent:main:main",
+        thinking: "hard",
+      }),
+    ).toBe(true);
+    expect(
+      isMutatingToolCall("session_status", {
+        sessionKey: "agent:main:main",
+        reasoning: "high",
       }),
     ).toBe(true);
   });
@@ -37,11 +49,34 @@ describe("tool mutation helpers", () => {
     expect(readFingerprint).toBeUndefined();
   });
 
+  it("treats coding-tool path aliases as the same stable target", () => {
+    const filePathFingerprint = buildToolActionFingerprint("edit", {
+      file_path: "/tmp/demo.txt",
+      old_string: "before",
+      new_string: "after",
+    });
+    const fileAliasFingerprint = buildToolActionFingerprint("edit", {
+      file: "/tmp/demo.txt",
+      oldText: "before",
+      newText: "after again",
+    });
+
+    expect(filePathFingerprint).toBe("tool=edit|path=/tmp/demo.txt");
+    expect(fileAliasFingerprint).toBe("tool=edit|path=/tmp/demo.txt");
+  });
+
   it("exposes mutation state for downstream payload rendering", () => {
     expect(
       buildToolMutationState("message", { action: "send", to: "telegram:1" }).mutatingAction,
     ).toBe(true);
     expect(buildToolMutationState("browser", { action: "list" }).mutatingAction).toBe(false);
+    expect(
+      buildToolMutationState("subagents", { action: "kill", target: "worker-1" }).mutatingAction,
+    ).toBe(true);
+    expect(
+      buildToolMutationState("subagents", { action: "steer", target: "worker-1" }).mutatingAction,
+    ).toBe(true);
+    expect(buildToolMutationState("subagents", { action: "list" }).mutatingAction).toBe(false);
   });
 
   it("matches tool actions by fingerprint and fails closed on asymmetric data", () => {
@@ -67,6 +102,7 @@ describe("tool mutation helpers", () => {
 
   it("keeps legacy name-only mutating heuristics for payload fallback", () => {
     expect(isLikelyMutatingToolName("sessions_archive")).toBe(true);
+    expect(isLikelyMutatingToolName("sessions_spawn")).toBe(true);
     expect(isLikelyMutatingToolName("sessions_send")).toBe(true);
     expect(isLikelyMutatingToolName("browser_actions")).toBe(true);
     expect(isLikelyMutatingToolName("message_slack")).toBe(true);

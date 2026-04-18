@@ -302,7 +302,7 @@ describe("deliverAgentCommandResult", () => {
         },
       ]),
     );
-    mocks.getChannelPlugin.mockImplementation((channel: string) =>
+    mocks.getChannelPlugin.mockImplementation((channel?: string) =>
       channel === "webchat" ? ({ outbound: {} } as { outbound: object }) : ({} as object),
     );
 

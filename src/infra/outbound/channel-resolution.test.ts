@@ -122,6 +122,20 @@ describe("outbound channel resolution", () => {
     expect(resolveRuntimePluginRegistryMock).not.toHaveBeenCalled();
   });
 
+  it("returns the registered webchat plugin even though it is internal-only", async () => {
+    const plugin = { id: "webchat" };
+    getChannelPluginMock.mockReturnValueOnce(plugin);
+    const channelResolution = await importChannelResolution("webchat-plugin");
+
+    expect(
+      channelResolution.resolveOutboundChannelPlugin({
+        channel: "webchat",
+        cfg: {} as never,
+      }),
+    ).toBe(plugin);
+    expect(resolveRuntimePluginRegistryMock).not.toHaveBeenCalled();
+  });
+
   it("falls back to the active registry when getChannelPlugin misses", async () => {
     const plugin = { id: "telegram" };
     getChannelPluginMock.mockReturnValue(undefined);

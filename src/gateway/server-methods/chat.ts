@@ -45,15 +45,14 @@ import {
 } from "../chat-abort.js";
 import {
   MediaOffloadError,
-  type ChatFileContent,
   type ChatImageContent,
   type OffloadedRef,
   parseMessageWithAttachments,
 } from "../chat-attachments.js";
 import { stripEnvelopeFromMessage, stripEnvelopeFromMessages } from "../chat-sanitize.js";
-import { saveInlineFileAttachment } from "../file-upload-save.js";
 import { augmentChatHistoryWithCliSessionImports } from "../cli-session-history.js";
 import { isSuppressedControlReplyText } from "../control-reply-text.js";
+import { saveInlineFileAttachment } from "../file-upload-save.js";
 import { ADMIN_SCOPE } from "../method-scopes.js";
 import {
   GATEWAY_CLIENT_CAPS,

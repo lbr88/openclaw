@@ -33,9 +33,7 @@ function maybeBootstrapChannelPlugin(params: {
   bootstrapOutboundChannelPlugin(params);
 }
 
-function resolveDirectFromActiveRegistry(
-  channel: DeliverableMessageChannel,
-): ChannelPlugin | undefined {
+function resolveDirectFromActiveRegistry(channel: string): ChannelPlugin | undefined {
   const activeRegistry = getActivePluginRegistry();
   if (!activeRegistry) {
     return undefined;
@@ -53,8 +51,11 @@ export function resolveOutboundChannelPlugin(params: {
   channel: string;
   cfg?: OpenClawConfig;
 }): ChannelPlugin | undefined {
-  const normalized = normalizeDeliverableOutboundChannel(params.channel);
+  const normalized = normalizeMessageChannel(params.channel);
   if (!normalized) {
+    return undefined;
+  }
+  if (normalized !== "webchat" && !isDeliverableMessageChannel(normalized)) {
     return undefined;
   }
 
@@ -63,6 +64,10 @@ export function resolveOutboundChannelPlugin(params: {
   const current = resolveLoaded();
   if (current) {
     return current;
+  }
+  const registered = resolve();
+  if (registered) {
+    return registered;
   }
   const directCurrent = resolveDirectFromActiveRegistry(normalized);
   if (directCurrent) {

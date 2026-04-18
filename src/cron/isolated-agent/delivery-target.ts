@@ -7,13 +7,17 @@ import { formatErrorMessage } from "../../infra/errors.js";
 import { maybeResolveIdLikeTarget } from "../../infra/outbound/target-id-resolution.js";
 import { tryResolveLoadedOutboundTarget } from "../../infra/outbound/targets-loaded.js";
 import { resolveSessionDeliveryTarget } from "../../infra/outbound/targets-session.js";
-import type { OutboundChannel } from "../../infra/outbound/targets.js";
 import { normalizeAccountId } from "../../routing/session-key.js";
+import {
+  INTERNAL_MESSAGE_CHANNEL,
+  normalizeMessageChannel,
+  type GatewayMessageChannel,
+} from "../../utils/message-channel.js";
 
 export type DeliveryTargetResolution =
   | {
       ok: true;
-      channel: Exclude<OutboundChannel, "none">;
+      channel: GatewayMessageChannel;
       to: string;
       accountId?: string;
       threadId?: string | number;
@@ -21,7 +25,7 @@ export type DeliveryTargetResolution =
     }
   | {
       ok: false;
-      channel?: Exclude<OutboundChannel, "none">;
+      channel?: GatewayMessageChannel;
       to?: string;
       accountId?: string;
       threadId?: string | number;
@@ -100,11 +104,19 @@ export async function resolveDeliveryTarget(
     allowMismatchedLastTo,
   });
 
-  let fallbackChannel: Exclude<OutboundChannel, "none"> | undefined;
+  const storedRouteChannel = normalizeMessageChannel(
+    main?.deliveryContext?.channel ?? main?.lastChannel,
+  );
+  const webchatFallbackChannel =
+    storedRouteChannel === INTERNAL_MESSAGE_CHANNEL ? INTERNAL_MESSAGE_CHANNEL : undefined;
+
+  let fallbackChannel: GatewayMessageChannel | undefined;
   let channelResolutionError: Error | undefined;
   if (!preliminary.channel) {
     if (preliminary.lastChannel) {
       fallbackChannel = preliminary.lastChannel;
+    } else if (webchatFallbackChannel) {
+      fallbackChannel = webchatFallbackChannel;
     } else {
       try {
         const { resolveMessageChannelSelection } = await loadChannelSelectionRuntime();

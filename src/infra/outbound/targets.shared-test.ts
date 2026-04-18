@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { webchatPlugin } from "../../channels/webchat/plugin.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
 import { resolveOutboundTarget } from "./targets.js";
 import {
@@ -10,7 +11,11 @@ import {
 export function installResolveOutboundTargetPluginRegistryHooks(): void {
   beforeEach(() => {
     setActivePluginRegistry(
-      createTargetsTestRegistry([createWhatsAppTestPlugin(), createTelegramTestPlugin()]),
+      createTargetsTestRegistry([
+        createWhatsAppTestPlugin(),
+        createTelegramTestPlugin(),
+        webchatPlugin,
+      ]),
     );
   });
 
@@ -107,12 +112,9 @@ export function runResolveOutboundTargetCoreTests(): void {
       }
     });
 
-    it("rejects webchat delivery", () => {
+    it("accepts webchat delivery when the webchat plugin is registered", () => {
       const res = resolveOutboundTarget({ channel: "webchat", to: "x" });
-      expect(res.ok).toBe(false);
-      if (!res.ok) {
-        expect(res.error.message).toContain("WebChat");
-      }
+      expect(res).toEqual({ ok: true, to: "x" });
     });
   });
 }

@@ -144,7 +144,10 @@ export function resolveAgentOutboundTarget(params: {
     params.targetMode ??
     params.plan.deliveryTargetMode ??
     (params.plan.resolvedTo ? "explicit" : "implicit");
-  if (!isDeliverableMessageChannel(params.plan.resolvedChannel)) {
+  if (
+    !isDeliverableMessageChannel(params.plan.resolvedChannel) &&
+    params.plan.resolvedChannel !== INTERNAL_MESSAGE_CHANNEL
+  ) {
     return {
       resolvedTarget: null,
       resolvedTo: params.plan.resolvedTo,

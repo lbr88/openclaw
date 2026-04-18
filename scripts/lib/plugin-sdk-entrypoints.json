@@ -3,6 +3,7 @@
   "core",
   "lmstudio",
   "lmstudio-runtime",
+  "ollama-setup",
   "provider-setup",
   "sandbox",
   "self-hosted-provider-setup",

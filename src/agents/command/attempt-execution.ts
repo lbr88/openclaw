@@ -119,27 +119,39 @@ async function persistTextTurnTranscript(
   });
 
   if (promptText) {
-    sessionManager.appendMessage({
-      role: "user",
+    const message = {
+      role: "user" as const,
       content: promptText,
       timestamp: Date.now(),
+    };
+    const messageId = sessionManager.appendMessage(message);
+    emitSessionTranscriptUpdate({
+      sessionFile,
+      sessionKey: params.sessionKey,
+      message,
+      ...(typeof messageId === "string" ? { messageId } : {}),
     });
   }
 
   if (replyText) {
-    sessionManager.appendMessage({
-      role: "assistant",
-      content: [{ type: "text", text: replyText }],
+    const message = {
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text: replyText }],
       api: params.assistant.api,
       provider: params.assistant.provider,
       model: params.assistant.model,
       usage: resolveTranscriptUsage(params.assistant.usage),
-      stopReason: "stop",
+      stopReason: "stop" as const,
       timestamp: Date.now(),
+    };
+    const messageId = sessionManager.appendMessage(message);
+    emitSessionTranscriptUpdate({
+      sessionFile,
+      sessionKey: params.sessionKey,
+      message,
+      ...(typeof messageId === "string" ? { messageId } : {}),
     });
   }
-
-  emitSessionTranscriptUpdate(sessionFile);
   return sessionEntry;
 }
 

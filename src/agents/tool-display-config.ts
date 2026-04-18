@@ -423,6 +423,11 @@ export const TOOL_DISPLAY_CONFIG: ToolDisplayConfig = {
       title: "Sessions",
       detailKeys: ["kinds", "limit", "activeMinutes", "messageLimit"],
     },
+    sessions_archive: {
+      emoji: "🗄️",
+      title: "Session Archive",
+      detailKeys: ["sessionKey", "agent", "agentId", "allAgents", "status", "olderThan", "dryRun"],
+    },
     sessions_send: {
       emoji: "📨",
       title: "Session Send",

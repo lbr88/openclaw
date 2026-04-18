@@ -13,14 +13,13 @@ import {
   updateSessionStore,
 } from "../../config/sessions.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { applySessionsPatchToStore } from "../../gateway/sessions-patch.js";
 import { resolveSessionModelIdentityRef } from "../../gateway/session-utils.js";
+import { applySessionsPatchToStore } from "../../gateway/sessions-patch.js";
 import {
   formatUsageWindowSummary,
   loadProviderUsageSummary,
   resolveUsageProviderId,
 } from "../../infra/provider-usage.js";
-import { resolveAgentDir } from "../agent-scope.js";
 import {
   buildAgentMainSessionKey,
   DEFAULT_AGENT_ID,
@@ -31,6 +30,7 @@ import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides
 import { normalizeOptionalLowercaseString } from "../../shared/string-coerce.js";
 import { buildTaskStatusSnapshotForRelatedSessionKeyForOwner } from "../../tasks/task-owner-access.js";
 import { formatTaskStatusDetail, formatTaskStatusTitle } from "../../tasks/task-status.js";
+import { resolveAgentDir } from "../agent-scope.js";
 import { loadModelCatalog } from "../model-catalog.js";
 import {
   buildAllowedModelSet,
@@ -39,10 +39,7 @@ import {
   resolveDefaultModelForAgent,
   resolveModelRefFromString,
 } from "../model-selection.js";
-import {
-  describeSessionStatusTool,
-  SESSION_STATUS_TOOL_DISPLAY_SUMMARY,
-} from "../tool-description-presets.js";
+import { SESSION_STATUS_TOOL_DISPLAY_SUMMARY } from "../tool-description-presets.js";
 import type { AnyAgentTool } from "./common.js";
 import { readStringParam } from "./common.js";
 import {

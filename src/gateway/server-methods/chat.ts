@@ -2232,21 +2232,6 @@ export const chatHandlers: GatewayRequestHandlers = {
           ? resolveChatSendTranscriptMediaFields(await persistedImagesPromise)
           : {};
 
-      // Broadcast the user message to all connected clients on this session so
-      // multi-client setups (for example phone + desktop webchat) stay in sync.
-      const userMessagePayload = {
-        runId: clientRunId,
-        sessionKey: rawSessionKey,
-        state: "user_message" as const,
-        message: {
-          role: "user" as const,
-          content: [{ type: "text" as const, text: parsedMessage }],
-          timestamp: now,
-        },
-      };
-      context.broadcast("chat", userMessagePayload);
-      context.nodeSendToSession(rawSessionKey, "chat", userMessagePayload);
-
       const trimmedMessage = parsedMessage.trim();
       const injectThinking = Boolean(
         p.thinking && trimmedMessage && !trimmedMessage.startsWith("/"),

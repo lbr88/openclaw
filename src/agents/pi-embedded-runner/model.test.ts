@@ -987,6 +987,46 @@ describe("resolveModel", () => {
     expect(result.model).toMatchObject(buildOpenAICodexForwardCompatExpectation("gpt-5.4-mini"));
   });
 
+  it("builds an openai-codex fallback for gpt-5.5", () => {
+    mockOpenAICodexTemplateModel(discoverModels);
+
+    const result = resolveModelForTest("openai-codex", "gpt-5.5", "/tmp/agent");
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "openai-codex",
+      id: "gpt-5.5",
+      api: "openai-codex-responses",
+      baseUrl: "https://chatgpt.com/backend-api",
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 },
+      contextWindow: 1_050_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+    });
+  });
+
+  it("builds an openai-codex fallback for gpt-5.5-pro", () => {
+    mockOpenAICodexTemplateModel(discoverModels);
+
+    const result = resolveModelForTest("openai-codex", "gpt-5.5-pro", "/tmp/agent");
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "openai-codex",
+      id: "gpt-5.5-pro",
+      api: "openai-codex-responses",
+      baseUrl: "https://chatgpt.com/backend-api",
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_050_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000,
+    });
+  });
+
   it("builds an openai-codex fallback for gpt-5.3-codex-spark", () => {
     mockOpenAICodexTemplateModel(discoverModels);
 

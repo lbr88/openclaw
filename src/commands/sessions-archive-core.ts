@@ -243,7 +243,7 @@ export function parseSessionsArchiveOlderThan(value: string | undefined): number
   if (!value) {
     return undefined;
   }
-  return parseDurationMs(String(value).trim(), { defaultUnit: "d" });
+  return parseDurationMs(value.trim(), { defaultUnit: "d" });
 }
 
 export function resolveSessionsArchiveTargets(params: {

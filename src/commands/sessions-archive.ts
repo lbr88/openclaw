@@ -10,12 +10,11 @@ import {
   type SessionArchiveSummary,
   type SessionsArchiveOptions,
 } from "./sessions-archive-core.js";
+import { resolveSessionDisplayModel } from "./sessions-display-model.js";
 import {
   formatSessionAgeCell,
   formatSessionKeyCell,
   formatSessionModelCell,
-  resolveSessionDisplayDefaults,
-  resolveSessionDisplayModel,
   SESSION_AGE_PAD,
   SESSION_KEY_PAD,
   SESSION_MODEL_PAD,
@@ -68,7 +67,6 @@ function renderStoreArchivePlan(params: {
   actionRows: SessionArchiveActionRow[];
   runtime: RuntimeEnv;
   showAgentHeader: boolean;
-  displayDefaults: ReturnType<typeof resolveSessionDisplayDefaults>;
 }) {
   const rich = isRich();
   if (params.showAgentHeader) {
@@ -108,7 +106,7 @@ function renderStoreArchivePlan(params: {
   ].join(" ");
   params.runtime.log(rich ? theme.heading(header) : header);
   for (const actionRow of params.actionRows) {
-    const model = resolveSessionDisplayModel(params.cfg, actionRow, params.displayDefaults);
+    const model = resolveSessionDisplayModel(params.cfg, actionRow);
     const line = [
       formatArchiveActionCell(actionRow.action, rich),
       formatArchiveStatusCell(actionRow.status, rich),
@@ -126,7 +124,6 @@ export async function sessionsArchiveCommand(
   runtime: RuntimeEnv,
 ) {
   const cfg = loadConfig();
-  const displayDefaults = resolveSessionDisplayDefaults(cfg);
 
   let result;
   try {
@@ -170,7 +167,6 @@ export async function sessionsArchiveCommand(
       actionRows: store.actionRows,
       runtime,
       showAgentHeader: result.stores.length > 1,
-      displayDefaults,
     });
   }
 }

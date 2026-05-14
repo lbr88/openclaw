@@ -1,55 +1,85 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { enqueueCommandInLane, resetCommandQueueStateForTest } from "../process/command-queue.js";
 import { CommandLane } from "../process/lanes.js";
+import { applyGatewayLaneConcurrency } from "./server-lanes.js";
 
-const queueMocks = vi.hoisted(() => ({
-  setCommandLaneConcurrency: vi.fn(),
-}));
+function createDeferred<T>() {
+  let resolve: ((value: T | PromiseLike<T>) => void) | undefined;
+  let reject: ((reason?: unknown) => void) | undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  if (!resolve || !reject) {
+    throw new Error("Expected deferred callbacks to be initialized");
+  }
+  return { promise, resolve, reject };
+}
 
-vi.mock("../process/command-queue.js", () => ({
-  setCommandLaneConcurrency: queueMocks.setCommandLaneConcurrency,
-}));
+async function expectLanePeakConcurrency(lane: CommandLane, expectedPeak: number) {
+  let activeRuns = 0;
+  let peakActiveRuns = 0;
+  const expectedRunsStarted = createDeferred<void>();
+  const releaseRuns = createDeferred<void>();
+
+  const run = async () => {
+    activeRuns += 1;
+    peakActiveRuns = Math.max(peakActiveRuns, activeRuns);
+    if (peakActiveRuns >= expectedPeak) {
+      expectedRunsStarted.resolve();
+    }
+    try {
+      await releaseRuns.promise;
+    } finally {
+      activeRuns -= 1;
+    }
+  };
+
+  const runs = Array.from({ length: expectedPeak }, () =>
+    enqueueCommandInLane(lane, run, { warnAfterMs: 10_000 }),
+  );
+  const timeout = setTimeout(() => {
+    expectedRunsStarted.reject(new Error(`timed out waiting for ${expectedPeak} ${lane} runs`));
+  }, 250);
+
+  try {
+    await expectedRunsStarted.promise;
+    expect(peakActiveRuns).toBe(expectedPeak);
+  } finally {
+    clearTimeout(timeout);
+    releaseRuns.resolve();
+    await Promise.all(runs);
+  }
+}
 
 describe("applyGatewayLaneConcurrency", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    queueMocks.setCommandLaneConcurrency.mockReset();
+  afterEach(() => {
+    resetCommandQueueStateForTest();
   });
 
-  it("applies default concurrency including the nested lane", async () => {
-    const { applyGatewayLaneConcurrency } = await import("./server-lanes.js");
+  it("applies cron maxConcurrentRuns to the cron-nested lane used by cron agent turns", async () => {
+    applyGatewayLaneConcurrency({ cron: { maxConcurrentRuns: 2 } } as OpenClawConfig);
 
-    applyGatewayLaneConcurrency({} as never);
+    await expectLanePeakConcurrency(CommandLane.CronNested, 2);
+  });
 
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(1, CommandLane.Cron, 1);
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(2, CommandLane.Main, 4);
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(
-      3,
-      CommandLane.Subagent,
-      8,
-    );
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(4, CommandLane.Nested, 8);
+  it("applies default concurrency to the shared nested lane", async () => {
+    applyGatewayLaneConcurrency({ cron: { maxConcurrentRuns: 2 } } as OpenClawConfig);
+
+    await expectLanePeakConcurrency(CommandLane.Nested, 8);
   });
 
   it("sizes the nested lane to the larger of agent and subagent concurrency", async () => {
-    const { applyGatewayLaneConcurrency } = await import("./server-lanes.js");
-
     applyGatewayLaneConcurrency({
-      cron: { maxConcurrentRuns: 2 },
       agents: {
         defaults: {
           maxConcurrent: 6,
           subagents: { maxConcurrent: 3 },
         },
       },
-    } as never);
+    } as OpenClawConfig);
 
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(1, CommandLane.Cron, 2);
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(2, CommandLane.Main, 6);
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(
-      3,
-      CommandLane.Subagent,
-      3,
-    );
-    expect(queueMocks.setCommandLaneConcurrency).toHaveBeenNthCalledWith(4, CommandLane.Nested, 6);
+    await expectLanePeakConcurrency(CommandLane.Nested, 6);
   });
 });

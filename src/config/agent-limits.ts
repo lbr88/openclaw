@@ -6,6 +6,7 @@ export const DEFAULT_NESTED_AGENT_MAX_CONCURRENT = Math.max(
   DEFAULT_AGENT_MAX_CONCURRENT,
   DEFAULT_SUBAGENT_MAX_CONCURRENT,
 );
+export const DEFAULT_SUBAGENT_MAX_CHILDREN_PER_AGENT = 5;
 // Keep depth-1 subagents as leaves unless config explicitly opts into nesting.
 export const DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH = 1;
 

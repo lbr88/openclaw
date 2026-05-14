@@ -1,20 +1,21 @@
-import type { ChannelSetupInput } from "openclaw/plugin-sdk/channel-setup";
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/routing";
 import { hasConfiguredSecretInput } from "openclaw/plugin-sdk/secret-input";
-import { setSetupChannelEnabled } from "openclaw/plugin-sdk/setup";
-import { type ChannelSetupWizard } from "openclaw/plugin-sdk/setup";
-import { formatDocsLink } from "openclaw/plugin-sdk/setup";
-import { listNextcloudTalkAccountIds, resolveNextcloudTalkAccount } from "./accounts.js";
+import {
+  createStandardChannelSetupStatus,
+  formatDocsLink,
+  setSetupChannelEnabled,
+  type ChannelSetupWizard,
+} from "openclaw/plugin-sdk/setup";
+import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { resolveNextcloudTalkAccount } from "./accounts.js";
 import {
   clearNextcloudTalkAccountFields,
   nextcloudTalkDmPolicy,
-  nextcloudTalkSetupAdapter,
   normalizeNextcloudTalkBaseUrl,
   setNextcloudTalkAccountConfig,
   validateNextcloudTalkBaseUrl,
 } from "./setup-core.js";
-import type { CoreConfig, DmPolicy } from "./types.js";
+import type { CoreConfig } from "./types.js";
 
 const channel = "nextcloud-talk" as const;
 const CONFIGURE_API_FLAG = "__nextcloudTalkConfigureApiCredentials";
@@ -22,24 +23,24 @@ const CONFIGURE_API_FLAG = "__nextcloudTalkConfigureApiCredentials";
 export const nextcloudTalkSetupWizard: ChannelSetupWizard = {
   channel,
   stepOrder: "text-first",
-  status: {
+  status: createStandardChannelSetupStatus({
+    channelLabel: "Nextcloud Talk",
     configuredLabel: "configured",
     unconfiguredLabel: "needs setup",
     configuredHint: "configured",
     unconfiguredHint: "self-hosted chat",
     configuredScore: 1,
     unconfiguredScore: 5,
-    resolveConfigured: ({ cfg }) =>
-      listNextcloudTalkAccountIds(cfg as CoreConfig).some((accountId) => {
-        const account = resolveNextcloudTalkAccount({ cfg: cfg as CoreConfig, accountId });
-        return Boolean(account.secret && account.baseUrl);
-      }),
-  },
+    resolveConfigured: ({ cfg, accountId }) => {
+      const account = resolveNextcloudTalkAccount({ cfg: cfg as CoreConfig, accountId });
+      return Boolean(account.secret && account.baseUrl);
+    },
+  }),
   introNote: {
     title: "Nextcloud Talk bot setup",
     lines: [
       "1) SSH into your Nextcloud server",
-      '2) Run: ./occ talk:bot:install "OpenClaw" "<shared-secret>" "<webhook-url>" --feature reaction',
+      '2) Run: ./occ talk:bot:install "OpenClaw" "<shared-secret>" "<webhook-url>" --feature webhook --feature response --feature reaction',
       "3) Copy the shared secret you used in the command",
       "4) Enable the bot in your Nextcloud Talk room settings",
       "Tip: you can also set NEXTCLOUD_TALK_BOT_SECRET in your env.",
@@ -62,7 +63,7 @@ export const nextcloudTalkSetupWizard: ChannelSetupWizard = {
       initialValue: hasApiCredentials,
     });
     if (!configureApiCredentials) {
-      return;
+      return undefined;
     }
     return {
       credentialValues: {
@@ -92,7 +93,7 @@ export const nextcloudTalkSetupWizard: ChannelSetupWizard = {
           resolvedValue: resolvedAccount.secret || undefined,
           envValue:
             accountId === DEFAULT_ACCOUNT_ID
-              ? process.env.NEXTCLOUD_TALK_BOT_SECRET?.trim() || undefined
+              ? normalizeOptionalString(process.env.NEXTCLOUD_TALK_BOT_SECRET)
               : undefined,
         };
       },
@@ -187,5 +188,3 @@ export const nextcloudTalkSetupWizard: ChannelSetupWizard = {
   dmPolicy: nextcloudTalkDmPolicy,
   disable: (cfg) => setSetupChannelEnabled(cfg, channel, false),
 };
-
-export { nextcloudTalkSetupAdapter };

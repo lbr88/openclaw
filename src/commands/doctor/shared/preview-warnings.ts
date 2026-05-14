@@ -1,7 +1,28 @@
+import { resolveAgentConfig } from "../../../agents/agent-scope-config.js";
+import { pickSandboxToolPolicy } from "../../../agents/sandbox-tool-policy.js";
+import { isToolAllowedByPolicies } from "../../../agents/tool-policy-match.js";
+import { mergeAlsoAllowPolicy, resolveToolProfilePolicy } from "../../../agents/tool-policy.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import type { AgentToolsConfig, ToolsConfig } from "../../../config/types.tools.js";
+import { collectChannelRouteTargets } from "../../../routing/channel-route-targets.js";
+import { createLazyImportLoader } from "../../../shared/lazy-promise.js";
+
+type ChannelDoctorModule = typeof import("./channel-doctor.js");
+
+const channelDoctorModuleLoader = createLazyImportLoader<ChannelDoctorModule>(
+  () => import("./channel-doctor.js"),
+);
+
+function loadChannelDoctorModule(): Promise<ChannelDoctorModule> {
+  return channelDoctorModuleLoader.load();
+}
 
 function hasRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function listAgentRecords(cfg: OpenClawConfig): Record<string, unknown>[] {
+  return Array.isArray(cfg.agents?.list) ? cfg.agents.list.filter(hasRecord) : [];
 }
 
 function hasChannels(cfg: OpenClawConfig): boolean {
@@ -58,7 +79,7 @@ function hasConfiguredSafeBins(cfg: OpenClawConfig): boolean {
   ) {
     return true;
   }
-  return (cfg.agents?.list ?? []).some((agent) => {
+  return listAgentRecords(cfg).some((agent) => {
     const agentExec = hasRecord(agent) && hasRecord(agent.tools) ? agent.tools.exec : undefined;
     return (
       hasRecord(agentExec) && Array.isArray(agentExec.safeBins) && agentExec.safeBins.length > 0
@@ -66,20 +87,155 @@ function hasConfiguredSafeBins(cfg: OpenClawConfig): boolean {
   });
 }
 
+type VisibleReplyPolicyProvenance = "default" | "global-explicit" | "group-explicit";
+
+function resolveMessageToolAvailability(params: {
+  globalTools?: ToolsConfig;
+  agentTools?: AgentToolsConfig;
+}): boolean {
+  const profile = params.agentTools?.profile ?? params.globalTools?.profile;
+  const profileAlsoAllow = Array.isArray(params.agentTools?.alsoAllow)
+    ? params.agentTools.alsoAllow
+    : Array.isArray(params.globalTools?.alsoAllow)
+      ? params.globalTools.alsoAllow
+      : undefined;
+  const profilePolicy = mergeAlsoAllowPolicy(resolveToolProfilePolicy(profile), profileAlsoAllow);
+  return isToolAllowedByPolicies("message", [
+    profilePolicy,
+    pickSandboxToolPolicy(params.globalTools),
+    pickSandboxToolPolicy(params.agentTools),
+  ]);
+}
+
+function collectMessageToolUnavailableTargets(cfg: OpenClawConfig): string[] {
+  const agents = listAgentRecords(cfg);
+  if (agents.length === 0) {
+    return resolveMessageToolAvailability({ globalTools: cfg.tools })
+      ? []
+      : ["default tool policy"];
+  }
+  return agents.flatMap((agent) =>
+    resolveMessageToolAvailability({
+      globalTools: cfg.tools,
+      agentTools: agent.tools as AgentToolsConfig | undefined,
+    })
+      ? []
+      : [`agent "${typeof agent.id === "string" ? agent.id : "unknown"}"`],
+  );
+}
+
+function resolveGroupVisibleReplyProvenance(cfg: OpenClawConfig): {
+  path: "messages.groupChat.visibleReplies" | "messages.visibleReplies";
+  provenance: VisibleReplyPolicyProvenance;
+  value: "automatic" | "message_tool";
+} {
+  const groupVisibleReplies = cfg.messages?.groupChat?.visibleReplies;
+  if (groupVisibleReplies) {
+    return {
+      path: "messages.groupChat.visibleReplies",
+      provenance: "group-explicit",
+      value: groupVisibleReplies,
+    };
+  }
+  const globalVisibleReplies = cfg.messages?.visibleReplies;
+  if (globalVisibleReplies) {
+    return {
+      path: "messages.visibleReplies",
+      provenance: "global-explicit",
+      value: globalVisibleReplies,
+    };
+  }
+  return {
+    path: "messages.groupChat.visibleReplies",
+    provenance: "default",
+    value: "message_tool",
+  };
+}
+
+function formatTargets(targets: string[]): string {
+  if (targets.length <= 2) {
+    return targets.join(" and ");
+  }
+  return `${targets.slice(0, 2).join(", ")}, and ${targets.length - 2} more`;
+}
+
+export function collectVisibleReplyToolPolicyWarnings(cfg: OpenClawConfig): string[] {
+  const targets = collectMessageToolUnavailableTargets(cfg);
+  if (targets.length === 0) {
+    return [];
+  }
+  const groupPolicy = resolveGroupVisibleReplyProvenance(cfg);
+  const warnings: string[] = [];
+  if (groupPolicy.value === "message_tool") {
+    if (groupPolicy.provenance === "default" && !hasChannels(cfg)) {
+      return warnings;
+    }
+    const targetSummary = formatTargets(targets);
+    if (groupPolicy.provenance === "default") {
+      warnings.push(
+        `- messages.groupChat.visibleReplies defaults to "message_tool", but the message tool is unavailable for ${targetSummary}; OpenClaw falls back to automatic group/channel replies to avoid silent responses. Enable the message tool or set messages.groupChat.visibleReplies explicitly.`,
+      );
+    } else {
+      warnings.push(
+        `- ${groupPolicy.path} is set to "message_tool", but the message tool is unavailable for ${targetSummary}; OpenClaw falls back to automatic visible replies, so normal replies may post to the source chat. Enable the message tool or set ${groupPolicy.path} to "automatic".`,
+      );
+    }
+  }
+
+  const globalVisibleReplies = cfg.messages?.visibleReplies;
+  if (globalVisibleReplies === "message_tool" && groupPolicy.path !== "messages.visibleReplies") {
+    warnings.push(
+      `- messages.visibleReplies is set to "message_tool", but the message tool is unavailable for ${formatTargets(
+        targets,
+      )}; OpenClaw falls back to automatic direct-chat replies, so normal replies may post to the source chat. Enable the message tool or set messages.visibleReplies to "automatic".`,
+    );
+  }
+  return warnings;
+}
+
+function formatChannelList(channels: string[]): string {
+  if (channels.length <= 2) {
+    return channels.map((channel) => `"${channel}"`).join(" and ");
+  }
+  return `${channels
+    .slice(0, 2)
+    .map((channel) => `"${channel}"`)
+    .join(", ")}, and ${channels.length - 2} more`;
+}
+
+export function collectChannelBoundMessageToolPolicyWarnings(cfg: OpenClawConfig): string[] {
+  return collectChannelRouteTargets(cfg).flatMap((target) => {
+    const agentTools = resolveAgentConfig(cfg, target.agentId)?.tools;
+    if (resolveMessageToolAvailability({ globalTools: cfg.tools, agentTools })) {
+      return [];
+    }
+    return [
+      `- Agent "${target.agentId}" is routed from channel ${formatChannelList(
+        target.channels,
+      )}, but the message tool is unavailable for that agent; explicit channel actions such as sendAttachment, upload-file, thread-reply, or reply can fail. Add "message" to the agent tool allowlist, add "group:messaging", or switch the agent to a profile that includes messaging tools.`,
+    ];
+  });
+}
+
 export async function collectDoctorPreviewWarnings(params: {
   cfg: OpenClawConfig;
   doctorFixCommand: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<string[]> {
   const warnings: string[] = [];
+  const env = params.env ?? process.env;
   const hasChannelConfig = hasChannels(params.cfg);
   const hasPluginConfig = hasPlugins(params.cfg);
+
+  warnings.push(...collectVisibleReplyToolPolicyWarnings(params.cfg));
+  warnings.push(...collectChannelBoundMessageToolPolicyWarnings(params.cfg));
 
   const channelPluginRuntime =
     hasChannelConfig && hasExplicitChannelPluginBlockerConfig(params.cfg)
       ? await import("./channel-plugin-blockers.js")
       : undefined;
   const channelPluginBlockerHits =
-    channelPluginRuntime?.scanConfiguredChannelPluginBlockers(params.cfg, process.env) ?? [];
+    channelPluginRuntime?.scanConfiguredChannelPluginBlockers(params.cfg, env) ?? [];
   if (channelPluginRuntime && channelPluginBlockerHits.length > 0) {
     warnings.push(
       channelPluginRuntime
@@ -89,10 +245,11 @@ export async function collectDoctorPreviewWarnings(params: {
   }
 
   if (hasChannelConfig) {
-    const { collectChannelDoctorPreviewWarnings } = await import("./channel-doctor.js");
+    const { collectChannelDoctorPreviewWarnings } = await loadChannelDoctorModule();
     const channelDoctorWarnings = await collectChannelDoctorPreviewWarnings({
       cfg: params.cfg,
       doctorFixCommand: params.doctorFixCommand,
+      env,
     });
     if (channelDoctorWarnings.length > 0) {
       warnings.push(...channelDoctorWarnings);
@@ -111,28 +268,35 @@ export async function collectDoctorPreviewWarnings(params: {
     }
   }
 
-  if (hasPluginConfig) {
+  if ((hasPluginConfig || hasChannelConfig) && params.cfg.plugins?.enabled !== false) {
     const {
       collectStalePluginConfigWarnings,
       isStalePluginAutoRepairBlocked,
       scanStalePluginConfig,
     } = await import("./stale-plugin-config.js");
-    const stalePluginHits = scanStalePluginConfig(params.cfg, process.env);
+    const stalePluginHits = scanStalePluginConfig(params.cfg, env);
     if (stalePluginHits.length > 0) {
       warnings.push(
         collectStalePluginConfigWarnings({
           hits: stalePluginHits,
           doctorFixCommand: params.doctorFixCommand,
-          autoRepairBlocked: isStalePluginAutoRepairBlocked(params.cfg, process.env),
+          autoRepairBlocked: isStalePluginAutoRepairBlocked(params.cfg, env),
         }).join("\n"),
       );
     }
   }
 
+  if (hasPluginConfig) {
+    const { collectCodexRouteWarnings } = await import("./codex-route-warnings.js");
+    warnings.push(...collectCodexRouteWarnings({ cfg: params.cfg, env }));
+  }
+  const { collectCodexNativeAssetWarnings } = await import("./codex-native-assets.js");
+  warnings.push(...(await collectCodexNativeAssetWarnings({ cfg: params.cfg, env })));
+
   if (hasPluginLoadPaths(params.cfg)) {
     const { collectBundledPluginLoadPathWarnings, scanBundledPluginLoadPathMigrations } =
       await import("./bundled-plugin-load-paths.js");
-    const bundledPluginLoadPathHits = scanBundledPluginLoadPathMigrations(params.cfg, process.env);
+    const bundledPluginLoadPathHits = scanBundledPluginLoadPathMigrations(params.cfg, env);
     if (bundledPluginLoadPathHits.length > 0) {
       warnings.push(
         collectBundledPluginLoadPathWarnings({
@@ -144,11 +308,17 @@ export async function collectDoctorPreviewWarnings(params: {
   }
 
   if (hasChannelConfig) {
-    const { collectChannelDoctorEmptyAllowlistExtraWarnings } = await import("./channel-doctor.js");
+    const { createChannelDoctorEmptyAllowlistPolicyHooks } = await loadChannelDoctorModule();
     const { scanEmptyAllowlistPolicyWarnings } = await import("./empty-allowlist-scan.js");
+    const emptyAllowlistHooks = createChannelDoctorEmptyAllowlistPolicyHooks({
+      cfg: params.cfg,
+      env,
+    });
     const emptyAllowlistWarnings = scanEmptyAllowlistPolicyWarnings(params.cfg, {
       doctorFixCommand: params.doctorFixCommand,
-      extraWarningsForAccount: collectChannelDoctorEmptyAllowlistExtraWarnings,
+      extraWarningsForAccount: emptyAllowlistHooks.extraWarningsForAccount,
+      shouldSkipDefaultEmptyGroupAllowlistWarning:
+        emptyAllowlistHooks.shouldSkipDefaultEmptyGroupAllowlistWarning,
     }).filter(
       (warning) =>
         !(

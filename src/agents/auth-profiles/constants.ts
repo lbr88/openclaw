@@ -7,9 +7,12 @@ export {
 
 export const AUTH_STORE_VERSION = 1;
 
+/** @deprecated Anthropic provider-owned CLI profile id; do not use from third-party plugins. */
 export const CLAUDE_CLI_PROFILE_ID = "anthropic:claude-cli";
+/** @deprecated OpenAI Codex provider-owned CLI profile id; do not use from third-party plugins. */
 export const CODEX_CLI_PROFILE_ID = "openai-codex:codex-cli";
 export const OPENAI_CODEX_DEFAULT_PROFILE_ID = "openai-codex:default";
+/** @deprecated MiniMax provider-owned CLI profile id; do not use from third-party plugins. */
 export const MINIMAX_CLI_PROFILE_ID = "minimax-portal:minimax-cli";
 
 export const AUTH_STORE_LOCK_OPTIONS = {
@@ -33,9 +36,13 @@ export const AUTH_STORE_LOCK_OPTIONS = {
 // so a legitimate refresh's critical section always finishes well before
 // peers would treat the lock as reclaimable. Violating this invariant re-
 // introduces the `refresh_token_reused` race the lock is meant to prevent.
+//
+// Retry budget note: keep the MINIMUM cumulative retry window comfortably
+// above OAUTH_REFRESH_CALL_TIMEOUT_MS so waiters do not give up while a
+// legitimate slow refresh is still within its allowed runtime budget.
 export const OAUTH_REFRESH_LOCK_OPTIONS = {
   retries: {
-    retries: 10,
+    retries: 20,
     factor: 2,
     minTimeout: 100,
     maxTimeout: 10_000,

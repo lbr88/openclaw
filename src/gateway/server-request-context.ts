@@ -8,9 +8,10 @@ type GatewayRequestContextClient = GatewayClient & {
   usesSharedGatewayAuth?: boolean;
 };
 
-export type GatewayRequestContextParams = {
+type GatewayRequestContextParams = {
   deps: GatewayRequestContext["deps"];
   runtimeState: Pick<GatewayServerLiveState, "cronState">;
+  getRuntimeConfig: GatewayRequestContext["getRuntimeConfig"];
   execApprovalManager: GatewayRequestContext["execApprovalManager"];
   pluginApprovalManager: GatewayRequestContext["pluginApprovalManager"];
   loadGatewayModelCatalog: GatewayRequestContext["loadGatewayModelCatalog"];
@@ -27,7 +28,7 @@ export type GatewayRequestContextParams = {
   nodeSubscribe: GatewayRequestContext["nodeSubscribe"];
   nodeUnsubscribe: GatewayRequestContext["nodeUnsubscribe"];
   nodeUnsubscribeAll: GatewayRequestContext["nodeUnsubscribeAll"];
-  hasConnectedMobileNode: GatewayRequestContext["hasConnectedMobileNode"];
+  hasConnectedTalkNode: GatewayRequestContext["hasConnectedTalkNode"];
   clients: Set<GatewayRequestContextClient>;
   enforceSharedGatewayAuthGenerationForConfigWrite: (nextConfig: OpenClawConfig) => void;
   nodeRegistry: GatewayRequestContext["nodeRegistry"];
@@ -37,6 +38,9 @@ export type GatewayRequestContextParams = {
   chatRunBuffers: GatewayRequestContext["chatRunBuffers"];
   chatDeltaSentAt: GatewayRequestContext["chatDeltaSentAt"];
   chatDeltaLastBroadcastLen: GatewayRequestContext["chatDeltaLastBroadcastLen"];
+  chatDeltaLastBroadcastText: GatewayRequestContext["chatDeltaLastBroadcastText"];
+  agentDeltaSentAt: GatewayRequestContext["agentDeltaSentAt"];
+  bufferedAgentEvents: GatewayRequestContext["bufferedAgentEvents"];
   addChatRun: GatewayRequestContext["addChatRun"];
   removeChatRun: GatewayRequestContext["removeChatRun"];
   subscribeSessionEvents: GatewayRequestContext["subscribeSessionEvents"];
@@ -51,11 +55,13 @@ export type GatewayRequestContextParams = {
   findRunningWizard: GatewayRequestContext["findRunningWizard"];
   purgeWizardSession: GatewayRequestContext["purgeWizardSession"];
   getRuntimeSnapshot: GatewayRequestContext["getRuntimeSnapshot"];
+  getEventLoopHealth?: GatewayRequestContext["getEventLoopHealth"];
   startChannel: GatewayRequestContext["startChannel"];
   stopChannel: GatewayRequestContext["stopChannel"];
   markChannelLoggedOut: GatewayRequestContext["markChannelLoggedOut"];
   wizardRunner: GatewayRequestContext["wizardRunner"];
   broadcastVoiceWakeChanged: GatewayRequestContext["broadcastVoiceWakeChanged"];
+  broadcastVoiceWakeRoutingChanged: GatewayRequestContext["broadcastVoiceWakeRoutingChanged"];
   unavailableGatewayMethods: ReadonlySet<string>;
 };
 
@@ -72,6 +78,7 @@ export function createGatewayRequestContext(
     get cronStorePath() {
       return params.runtimeState.cronState.storePath;
     },
+    getRuntimeConfig: params.getRuntimeConfig,
     execApprovalManager: params.execApprovalManager,
     pluginApprovalManager: params.pluginApprovalManager,
     loadGatewayModelCatalog: params.loadGatewayModelCatalog,
@@ -88,7 +95,7 @@ export function createGatewayRequestContext(
     nodeSubscribe: params.nodeSubscribe,
     nodeUnsubscribe: params.nodeUnsubscribe,
     nodeUnsubscribeAll: params.nodeUnsubscribeAll,
-    hasConnectedMobileNode: params.hasConnectedMobileNode,
+    hasConnectedTalkNode: params.hasConnectedTalkNode,
     hasExecApprovalClients: (excludeConnId?: string) => {
       for (const gatewayClient of params.clients) {
         if (excludeConnId && gatewayClient.connId === excludeConnId) {
@@ -130,6 +137,9 @@ export function createGatewayRequestContext(
     chatRunBuffers: params.chatRunBuffers,
     chatDeltaSentAt: params.chatDeltaSentAt,
     chatDeltaLastBroadcastLen: params.chatDeltaLastBroadcastLen,
+    chatDeltaLastBroadcastText: params.chatDeltaLastBroadcastText,
+    agentDeltaSentAt: params.agentDeltaSentAt,
+    bufferedAgentEvents: params.bufferedAgentEvents,
     addChatRun: params.addChatRun,
     removeChatRun: params.removeChatRun,
     subscribeSessionEvents: params.subscribeSessionEvents,
@@ -144,11 +154,13 @@ export function createGatewayRequestContext(
     findRunningWizard: params.findRunningWizard,
     purgeWizardSession: params.purgeWizardSession,
     getRuntimeSnapshot: params.getRuntimeSnapshot,
+    getEventLoopHealth: params.getEventLoopHealth,
     startChannel: params.startChannel,
     stopChannel: params.stopChannel,
     markChannelLoggedOut: params.markChannelLoggedOut,
     wizardRunner: params.wizardRunner,
     broadcastVoiceWakeChanged: params.broadcastVoiceWakeChanged,
+    broadcastVoiceWakeRoutingChanged: params.broadcastVoiceWakeRoutingChanged,
     unavailableGatewayMethods: params.unavailableGatewayMethods,
   };
 }

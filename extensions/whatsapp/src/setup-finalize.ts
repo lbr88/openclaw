@@ -1,8 +1,6 @@
 import path from "node:path";
 import {
   DEFAULT_ACCOUNT_ID,
-  normalizeAllowFromEntries,
-  normalizeE164,
   pathExists,
   splitSetupEntries,
   type DmPolicy,
@@ -15,7 +13,10 @@ import {
   resolveWhatsAppAccount,
   resolveWhatsAppAuthDir,
 } from "./accounts.js";
-import { loginWeb } from "./login.js";
+import {
+  normalizeWhatsAppAllowFromEntries,
+  normalizeWhatsAppAllowFromEntry,
+} from "./normalize-target.js";
 import { whatsappSetupAdapter } from "./setup-core.js";
 
 type SetupPrompter = Parameters<NonNullable<ChannelSetupWizard["finalize"]>>[0]["prompter"];
@@ -27,6 +28,42 @@ function trimPromptText(value: string | null | undefined): string {
   return value?.trim() ?? "";
 }
 
+function isDefaultWhatsAppAccountKey(accountId: string): boolean {
+  return accountId.trim().toLowerCase() === DEFAULT_ACCOUNT_ID;
+}
+
+function shouldWriteDefaultWhatsAppAccountConfigAtAccountScope(cfg: OpenClawConfig): boolean {
+  const accounts = cfg.channels?.whatsapp?.accounts;
+  if (!accounts) {
+    return false;
+  }
+  if (accounts.default) {
+    return true;
+  }
+  return Object.keys(accounts).some((accountId) => !isDefaultWhatsAppAccountKey(accountId));
+}
+
+function resolveDefaultWhatsAppAccountWriteKey(cfg: OpenClawConfig): string {
+  const accounts = cfg.channels?.whatsapp?.accounts;
+  if (!accounts) {
+    return DEFAULT_ACCOUNT_ID;
+  }
+  const match = Object.keys(accounts).find((accountId) => isDefaultWhatsAppAccountKey(accountId));
+  return match ?? DEFAULT_ACCOUNT_ID;
+}
+
+function resolveWhatsAppConfigPathPrefix(cfg: OpenClawConfig, accountId: string): string {
+  if (
+    accountId === DEFAULT_ACCOUNT_ID &&
+    shouldWriteDefaultWhatsAppAccountConfigAtAccountScope(cfg)
+  ) {
+    return `channels.whatsapp.accounts.${resolveDefaultWhatsAppAccountWriteKey(cfg)}`;
+  }
+  return accountId === DEFAULT_ACCOUNT_ID
+    ? "channels.whatsapp"
+    : `channels.whatsapp.accounts.${accountId}`;
+}
+
 function mergeWhatsAppConfig(
   cfg: OpenClawConfig,
   accountId: string,
@@ -35,7 +72,8 @@ function mergeWhatsAppConfig(
 ): OpenClawConfig {
   const channelConfig: WhatsAppConfig = { ...cfg.channels?.whatsapp };
   const mutableChannelConfig = channelConfig as Record<string, unknown>;
-  if (accountId === DEFAULT_ACCOUNT_ID) {
+  const targetPathPrefix = resolveWhatsAppConfigPathPrefix(cfg, accountId);
+  if (targetPathPrefix === "channels.whatsapp") {
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) {
         if (options?.unsetOnUndefined?.includes(key)) {
@@ -56,7 +94,16 @@ function mergeWhatsAppConfig(
   const accounts = {
     ...(channelConfig.accounts as Record<string, WhatsAppAccountConfig> | undefined),
   };
-  const nextAccount: WhatsAppAccountConfig = { ...accounts[accountId] };
+  const targetAccountId =
+    accountId === DEFAULT_ACCOUNT_ID ? resolveDefaultWhatsAppAccountWriteKey(cfg) : accountId;
+  const lowerDefaultAccount =
+    accountId === DEFAULT_ACCOUNT_ID && targetAccountId !== DEFAULT_ACCOUNT_ID
+      ? accounts[DEFAULT_ACCOUNT_ID]
+      : undefined;
+  const nextAccount: WhatsAppAccountConfig = {
+    ...accounts[targetAccountId],
+    ...lowerDefaultAccount,
+  };
   const mutableNextAccount = nextAccount as Record<string, unknown>;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) {
@@ -67,7 +114,10 @@ function mergeWhatsAppConfig(
     }
     mutableNextAccount[key] = value;
   }
-  accounts[accountId] = nextAccount;
+  accounts[targetAccountId] = nextAccount;
+  if (lowerDefaultAccount) {
+    delete accounts[DEFAULT_ACCOUNT_ID];
+  }
   return {
     ...cfg,
     channels: {
@@ -104,10 +154,7 @@ function setWhatsAppSelfChatMode(
   return mergeWhatsAppConfig(cfg, accountId, { selfChatMode });
 }
 
-export async function detectWhatsAppLinked(
-  cfg: OpenClawConfig,
-  accountId: string,
-): Promise<boolean> {
+async function detectWhatsAppLinked(cfg: OpenClawConfig, accountId: string): Promise<boolean> {
   const { authDir } = resolveWhatsAppAuthDir({ cfg, accountId });
   const credsPath = path.join(authDir, "creds.json");
   return await pathExists(credsPath);
@@ -132,7 +179,7 @@ async function promptWhatsAppOwnerAllowFrom(params: {
       if (!raw) {
         return "Required";
       }
-      const normalized = normalizeE164(raw);
+      const normalized = normalizeWhatsAppAllowFromEntry(raw);
       if (!normalized) {
         return `Invalid number: ${raw}`;
       }
@@ -140,14 +187,14 @@ async function promptWhatsAppOwnerAllowFrom(params: {
     },
   });
 
-  const normalized = normalizeE164(trimPromptText(entry));
+  const normalized = normalizeWhatsAppAllowFromEntry(trimPromptText(entry));
   if (!normalized) {
     throw new Error("Invalid WhatsApp owner number (expected E.164 after validation).");
   }
-  const allowFrom = normalizeAllowFromEntries(
-    [...existingAllowFrom.filter((item) => item !== "*"), normalized],
-    normalizeE164,
-  );
+  const allowFrom = normalizeWhatsAppAllowFromEntries([
+    ...existingAllowFrom.filter((item) => item !== "*"),
+    normalized,
+  ]);
   return { normalized, allowFrom };
 }
 
@@ -184,13 +231,13 @@ function parseWhatsAppAllowFromEntries(raw: string): { entries: string[]; invali
       entries.push("*");
       continue;
     }
-    const normalized = normalizeE164(part);
+    const normalized = normalizeWhatsAppAllowFromEntry(part);
     if (!normalized) {
       return { entries: [], invalidEntry: part };
     }
     entries.push(normalized);
   }
-  return { entries: normalizeAllowFromEntries(entries, normalizeE164) };
+  return { entries: normalizeWhatsAppAllowFromEntries(entries) };
 }
 
 async function promptWhatsAppDmAccess(params: {
@@ -204,14 +251,9 @@ async function promptWhatsAppDmAccess(params: {
   const existingPolicy = account.dmPolicy ?? "pairing";
   const existingAllowFrom = account.allowFrom ?? [];
   const existingLabel = existingAllowFrom.length > 0 ? existingAllowFrom.join(", ") : "unset";
-  const policyKey =
-    accountId === DEFAULT_ACCOUNT_ID
-      ? "channels.whatsapp.dmPolicy"
-      : `channels.whatsapp.accounts.${accountId}.dmPolicy`;
-  const allowFromKey =
-    accountId === DEFAULT_ACCOUNT_ID
-      ? "channels.whatsapp.allowFrom"
-      : `channels.whatsapp.accounts.${accountId}.allowFrom`;
+  const configPathPrefix = resolveWhatsAppConfigPathPrefix(params.cfg, accountId);
+  const policyKey = `${configPathPrefix}.dmPolicy`;
+  const allowFromKey = `${configPathPrefix}.allowFrom`;
 
   if (params.forceAllowFrom) {
     return await applyWhatsAppOwnerAllowlist({
@@ -273,7 +315,7 @@ async function promptWhatsAppDmAccess(params: {
   let next = setWhatsAppSelfChatMode(params.cfg, accountId, false);
   next = setWhatsAppDmPolicy(next, accountId, policy);
   if (policy === "open") {
-    const allowFrom = normalizeAllowFromEntries(["*", ...existingAllowFrom], normalizeE164);
+    const allowFrom = normalizeWhatsAppAllowFromEntries(["*", ...existingAllowFrom]);
     next = setWhatsAppAllowFrom(next, accountId, allowFrom.length > 0 ? allowFrom : ["*"]);
     return next;
   }
@@ -380,6 +422,7 @@ export async function finalizeWhatsAppSetup(params: {
   });
   if (wantsLink) {
     try {
+      const { loginWeb } = await import("./login.js");
       await loginWeb(false, undefined, params.runtime, accountId);
     } catch (error) {
       params.runtime.error(`WhatsApp login failed: ${String(error)}`);

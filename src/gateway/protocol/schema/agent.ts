@@ -1,22 +1,34 @@
 import { Type } from "@sinclair/typebox";
 import { InputProvenanceSchema, NonEmptyString, SessionLabelString } from "./primitives.js";
 
-export const AgentInternalEventSchema = Type.Object(
-  {
-    type: Type.Literal("task_completion"),
-    source: Type.String({ enum: ["subagent", "cron"] }),
-    childSessionKey: Type.String(),
-    childSessionId: Type.Optional(Type.String()),
-    announceType: Type.String(),
-    taskLabel: Type.String(),
-    status: Type.String({ enum: ["ok", "timeout", "error", "unknown"] }),
-    statusLabel: Type.String(),
-    result: Type.String(),
-    statsLine: Type.Optional(Type.String()),
-    replyInstruction: Type.String(),
-  },
-  { additionalProperties: false },
-);
+/**
+ * Internal event schema for internalEvents array on agent requests.
+ * Supports two types: "task_completion" (subagent/cron wake) and
+ * "workflow_event" (workflow_wait resolution). Fields for each type are
+ * optional here so both shapes can coexist in one object schema.
+ */
+export const AgentInternalEventSchema = Type.Object({
+  type: Type.String({ enum: ["task_completion", "workflow_event"] }),
+  // task_completion fields
+  source: Type.Optional(Type.String({ enum: ["subagent", "cron"] })),
+  childSessionKey: Type.Optional(Type.String()),
+  childSessionId: Type.Optional(Type.String()),
+  announceType: Type.Optional(Type.String()),
+  taskLabel: Type.Optional(Type.String()),
+  status: Type.Optional(Type.String({ enum: ["ok", "timeout", "error", "unknown"] })),
+  statusLabel: Type.Optional(Type.String()),
+  result: Type.Optional(Type.String()),
+  statsLine: Type.Optional(Type.String()),
+  replyInstruction: Type.Optional(Type.String()),
+  // workflow_event fields
+  eventId: Type.Optional(Type.String()),
+  kind: Type.Optional(Type.String()),
+  ts: Type.Optional(Type.Integer({ minimum: 0 })),
+  sessionKey: Type.Optional(Type.String()),
+  runId: Type.Optional(Type.String()),
+  parentSessionKey: Type.Optional(Type.String()),
+  data: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+});
 
 export const AgentEventSchema = Type.Object(
   {

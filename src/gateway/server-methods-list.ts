@@ -121,6 +121,9 @@ const BASE_METHODS = [
   "file.chunk",
   "file.complete",
   "file.cancel",
+  // Workflow event subscription (additive; v1 in-memory broker)
+  "workflow.subscribe",
+  "workflow.unsubscribe",
 ];
 
 export function listGatewayMethods(): string[] {
@@ -153,4 +156,5 @@ export const GATEWAY_EVENTS = [
   "chat.turn.timeout",
   "file.uploaded",
   GATEWAY_EVENT_UPDATE_AVAILABLE,
+  "workflow.event",
 ];

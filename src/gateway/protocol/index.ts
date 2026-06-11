@@ -278,6 +278,10 @@ import {
   ChatTurnCommitParamsSchema,
   type ChatTurnCancelParams,
   ChatTurnCancelParamsSchema,
+  WorkflowSubscribeParamsSchema,
+  WorkflowUnsubscribeParamsSchema,
+  type WorkflowSubscribeParams,
+  type WorkflowUnsubscribeParams,
 } from "./schema.js";
 
 const ajv = new (AjvPkg as unknown as new (opts?: object) => import("ajv").default)({
@@ -479,6 +483,12 @@ export const validateChatTurnCommitParams = ajv.compile<ChatTurnCommitParams>(
 );
 export const validateChatTurnCancelParams = ajv.compile<ChatTurnCancelParams>(
   ChatTurnCancelParamsSchema,
+);
+export const validateWorkflowSubscribeParams = ajv.compile<WorkflowSubscribeParams>(
+  WorkflowSubscribeParamsSchema,
+);
+export const validateWorkflowUnsubscribeParams = ajv.compile<WorkflowUnsubscribeParams>(
+  WorkflowUnsubscribeParamsSchema,
 );
 
 export function formatValidationErrors(errors: ErrorObject[] | null | undefined) {
@@ -753,4 +763,6 @@ export type {
   FileChunkParams,
   FileCompleteParams,
   FileCancelParams,
+  WorkflowSubscribeParams,
+  WorkflowUnsubscribeParams,
 };

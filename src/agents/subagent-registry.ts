@@ -14,6 +14,7 @@ import { resolveContextEngine } from "../context-engine/registry.js";
 import type { SubagentEndReason } from "../context-engine/types.js";
 import { callGateway } from "../gateway/call.js";
 import { onAgentEvent } from "../infra/agent-events.js";
+import { emitSubagentWorkflowEvent } from "../infra/workflow-event-bridge.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { defaultRuntime } from "../runtime.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
@@ -439,6 +440,18 @@ async function emitSubagentEndedHookForRun(params: {
   const reason = params.reason ?? params.entry.endedReason ?? SUBAGENT_ENDED_REASON_COMPLETE;
   const outcome = resolveLifecycleOutcomeFromRunOutcome(params.entry.outcome);
   const error = params.entry.outcome?.status === "error" ? params.entry.outcome.error : undefined;
+  // Emit workflow event for orchestration subscribers.
+  const wfKind =
+    outcome === "ok" || outcome === "killed" || outcome === "reset" || outcome === "deleted"
+      ? ("subagent.completed" as const)
+      : ("subagent.failed" as const);
+  emitSubagentWorkflowEvent({
+    kind: wfKind,
+    runId: params.entry.runId,
+    parentSessionKey: params.entry.requesterSessionKey,
+    childSessionKey: params.entry.childSessionKey,
+    data: { outcome, reason, error },
+  });
   await emitSubagentEndedHookOnce({
     entry: params.entry,
     reason,
@@ -1397,6 +1410,14 @@ export function registerSubagentRun(params: {
   if (archiveAtMs) {
     startSweeper();
   }
+  // Emit workflow event for orchestration subscribers.
+  emitSubagentWorkflowEvent({
+    kind: "subagent.spawned",
+    runId: params.runId,
+    parentSessionKey: params.requesterSessionKey,
+    childSessionKey: params.childSessionKey,
+    data: { label: params.label, task: params.task, spawnMode },
+  });
   // Wait for subagent completion via gateway RPC (cross-process).
   // The in-process lifecycle listener is a fallback for embedded runs.
   void waitForSubagentCompletion(params.runId, waitTimeoutMs);

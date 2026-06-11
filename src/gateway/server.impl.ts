@@ -49,6 +49,12 @@ import {
 } from "../infra/skills-remote.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
+import { startWorkflowEventBridge } from "../infra/workflow-event-bridge.js";
+import {
+  subscribeWorkflowEvents,
+  unsubscribeWorkflowEvents,
+  replayWorkflowEvents,
+} from "../infra/workflow-events.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { resolveConfiguredDeferredChannelPluginIds } from "../plugins/channel-plugin-ids.js";
@@ -743,6 +749,10 @@ export async function startGatewayServer(
     broadcast("voicewake.changed", { triggers }, { dropIfSlow: true });
   };
   const hasMobileNodeConnected = () => hasConnectedMobileNode(nodeRegistry);
+
+  // Start workflow event bridge (maps agent lifecycle events to workflow events).
+  const stopWorkflowBridge = startWorkflowEventBridge();
+
   applyGatewayLaneConcurrency(cfgAtStart);
 
   // Register the gateway's broadcast function for webchat channel delivery.
@@ -1114,6 +1124,8 @@ export async function startGatewayServer(
     unsubscribeAllSessionEvents: (connId: string) => {
       sessionEventSubscribers.unsubscribe(connId);
       sessionMessageSubscribers.unsubscribeAll(connId);
+      // Also clean up workflow event subscriptions on disconnect.
+      unsubscribeWorkflowEvents(connId);
     },
     getSessionEventSubscriberConnIds: sessionEventSubscribers.getAll,
     registerToolEventRecipient: toolEventRecipients.add,
@@ -1127,6 +1139,21 @@ export async function startGatewayServer(
     markChannelLoggedOut,
     wizardRunner,
     broadcastVoiceWakeChanged,
+    subscribeWorkflowEvents: (connId, filter) => {
+      // Remove any previous subscription for this connId first (idempotent re-subscribe).
+      unsubscribeWorkflowEvents(connId);
+      subscribeWorkflowEvents(connId, filter, (evt) => {
+        // Deliver the workflow.event to only this connection.
+        const connSet = new Set([connId]);
+        broadcastToConnIds("workflow.event", evt, connSet, { dropIfSlow: true });
+      });
+    },
+    unsubscribeWorkflowEvents: (connId) => {
+      unsubscribeWorkflowEvents(connId);
+    },
+    replayWorkflowEvents: (afterCursor, filter) => {
+      return replayWorkflowEvents(afterCursor, filter);
+    },
   };
 
   // Store the gateway context as a fallback for plugin subagent dispatch
@@ -1349,6 +1376,7 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
+      stopWorkflowBridge();
       authRateLimiter?.dispose();
       browserAuthRateLimiter.dispose();
       stopModelPricingRefresh();
